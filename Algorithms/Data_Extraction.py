@@ -89,10 +89,45 @@ def load_earnings_2025(file_path):
 
     return df_2025_awe
 
+def load_housing_data(file_path):
+    """
+    Loads housing price data from the specified Excel file.
+    """
+    df = pd.read_excel(file_path, sheet_name=4, skiprows=2) # Sheet 4 contains housing prices
+
+    # Debug: Print column names to verify
+    print("Columns in housing data:", df.columns.tolist())
+
+    # Find the 'Time Period' column(First entry in row)
+    time_period_col = df.columns[0]
+
+    # Ensure the first column is in datetime format
+    df[time_period_col] = pd.to_datetime(df[time_period_col], errors='coerce')
+
+    # Filter to only the most recent time period
+    most_recent_row = df.iloc[-1]
+
+    # Strip the most recent date to only the date part
+    most_recent_date = most_recent_row[time_period_col].date()
+
+    # Debug: Print the most recent date
+    print("Most recent date in housing data:", most_recent_date)
+
+    #extract headers and prices
+    headers = df.columns.tolist()
+    prices = most_recent_row
+
+    # Create a DataFrame for housing prices
+    housing_prices_df = pd.DataFrame([prices], columns=headers)
+
+    return housing_prices_df
 
 if __name__ == "__main__":
     file_path = r"data/earn02nov2025 (1).xls"  # Use raw string for the path
     earnings_data = load_earnings_2025(file_path)
     print(earnings_data)
     earnings_data.to_csv("earnings_2025_awe.csv", index=False)
+    housing_file_path = r"data/Housing Prices.xlsx"
+    housing_data = load_housing_data(housing_file_path)
+    print(housing_data)
 
