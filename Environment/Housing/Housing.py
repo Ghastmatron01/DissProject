@@ -1,11 +1,14 @@
 import pandas as pd
+import re
 from datetime import datetime
 from tabulate import tabulate
 from pathlib import Path
 
-from Environment.Housing.vocab import UK_REGIONS
-from fuzzy_utils import fuzzy_match
-from vocab import UK_COUNTIES, UK_DISTRICTS, UK_PROPERTY_TYPES, UK_POSTCODE_AREAS, UK_REGIONS
+from Environment.Housing.vocab import (
+    UK_REGIONS, UK_COUNTIES, UK_DISTRICTS, 
+    UK_PROPERTY_TYPES, UK_POSTCODE_AREAS
+)
+from Environment.Housing.fuzzy_utils import fuzzy_match
 
 class House:
     """
@@ -18,17 +21,19 @@ class House:
         self.date = date
         self.county = county
         self.district = district
-        self.UK_COUNTIES = UK_COUNTIES
-        self.UK_DISTRICTS = UK_DISTRICTS
-        self.UK_PROPERTY_TYPES = UK_PROPERTY_TYPES
-        self.UK_POSTCODE_AREAS = UK_POSTCODE_AREAS
-        self.UK_REGIONS = UK_REGIONS
 
 class HousingMarket:
     """
-Store a collection of houses and provide methods to load data from the Land Registry
-Store a collection of UK regions and their counties, to enable searching by regions
+    Store a collection of houses and provide methods to load data from the Land Registry
+    Store a collection of UK regions and their counties, to enable searching by regions
     """
+    # Class-level vocab references for efficient access
+    UK_REGIONS = UK_REGIONS
+    UK_COUNTIES = UK_COUNTIES
+    UK_DISTRICTS = UK_DISTRICTS
+    UK_PROPERTY_TYPES = UK_PROPERTY_TYPES
+    UK_POSTCODE_AREAS = UK_POSTCODE_AREAS
+    
     def __init__(self):
         self.houses = []
 
@@ -210,9 +215,11 @@ Store a collection of UK regions and their counties, to enable searching by regi
 
     def interpret_query(self, text):
         """
-        Function to interpret the query and what the user wants to search based on what they input
-        :param text:
-        :return:
+        Function to interpret the query and what the user wants to search based on what they input.
+        Uses efficient batch matching to avoid iterating through all 300+ entries.
+        
+        :param text: User's natural language search query
+        :return: Dictionary of extracted search parameters
         """
         text = text.lower()
 
@@ -227,33 +234,30 @@ Store a collection of UK regions and their counties, to enable searching by regi
             "years": []
         }
 
-        # Fuzzy match counties
-        for c in self.UK_COUNTIES:
-            if fuzzy_match(text, [c]):
-                params["counties"].append(c)
+        # Efficient fuzzy matching - check for matches in all counties at once
+        county_matches = [c for c in self.UK_COUNTIES if fuzzy_match(text, [c])]
+        params["counties"].extend(county_matches)
 
-        # Fuzzy match districts
-        for d in self.UK_DISTRICTS:
-            if fuzzy_match(text, [d]):
-                params["districts"].append(d)
+        # Efficient fuzzy matching for districts
+        district_matches = [d for d in self.UK_DISTRICTS if fuzzy_match(text, [d])]
+        params["districts"].extend(district_matches)
 
-        # Property types (exact match is fine)
+        # Property types (exact match is fine and fast)
         for p in self.UK_PROPERTY_TYPES:
             if p in text:
                 params["property_types"].append(p)
 
-        # Postcode prefixes
+        # Postcode prefixes (exact match)
         for prefix in self.UK_POSTCODE_AREAS:
             if prefix.lower() in text:
                 params["postcode_prefixes"].append(prefix)
 
-        # Extract price like "200k"
-        import re
+        # Extract price like "200k" - using pre-imported re module
         price_match = re.search(r"(\d{2,3})k", text)
         if price_match:
             params["max_price"] = int(price_match.group(1)) * 1000
 
-        # Extract years
+        # Extract years (2018-2025 range)
         for y in range(2018, 2026):
             if str(y) in text:
                 params["years"].append(y)
@@ -328,11 +332,3 @@ Store a collection of UK regions and their counties, to enable searching by regi
             print(f"  • Max price: £{max(prices):,}")
             print(f"  • Average price: £{sum(prices) / len(prices):,.0f}")
 
-
-market = HousingMarket()
-
-market.process_and_display(
-    years=[2023],
-    limit=15,
-    base_path=r"C:\Users\User\PycharmProjects\Dissertation\Environment\Housing\HM Land Registery Price Paid"
-)

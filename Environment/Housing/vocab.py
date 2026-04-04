@@ -155,20 +155,63 @@ UK_DISTRICTS = [
     "Newry, Mourne and Down"
 ]
 
-UK_REGIONS = [
-    "North East",
-    "North West",
-    "Yorkshire and the Humber",
-    "East Midlands",
-    "West Midlands",
-    "East of England",
-    "London",
-    "South East",
-    "South West",
-    "Wales",
-    "Scotland",
-    "Northern Ireland"
-]
+UK_REGIONS = {
+    "North East": [
+        "Northumberland", "Tyne and Wear", "Durham"
+    ],
+    "North West": [
+        "Cheshire", "Cumbria", "Lancashire", "Greater Manchester", "Merseyside"
+    ],
+    "Yorkshire and the Humber": [
+        "East Riding of Yorkshire", "North Yorkshire", "South Yorkshire", "West Yorkshire"
+    ],
+    "East Midlands": [
+        "Derbyshire", "Leicestershire", "Lincolnshire", "Northamptonshire", 
+        "Nottinghamshire", "Rutland"
+    ],
+    "West Midlands": [
+        "Herefordshire", "Shropshire", "Staffordshire", "Warwickshire", 
+        "West Midlands", "Worcestershire"
+    ],
+    "East of England": [
+        "Bedfordshire", "Cambridgeshire", "Essex", "Hertfordshire", 
+        "Norfolk", "Suffolk"
+    ],
+    "London": [
+        "Greater London", "City of London"
+    ],
+    "South East": [
+        "Berkshire", "Buckinghamshire", "East Sussex", "Hampshire", "Isle of Wight",
+        "Kent", "Oxfordshire", "Surrey", "West Sussex"
+    ],
+    "South West": [
+        "Bristol", "Cornwall", "Devon", "Dorset", "Gloucestershire", "Somerset", 
+        "Wiltshire"
+    ],
+    "Wales": [
+        "Blaenau Gwent", "Bridgend", "Caerphilly", "Cardiff", "Carmarthenshire",
+        "Ceredigion", "Conwy", "Denbighshire", "Flintshire", "Gwynedd",
+        "Isle of Anglesey", "Merthyr Tydfil", "Monmouthshire", "Neath Port Talbot",
+        "Newport", "Pembrokeshire", "Powys", "Rhondda Cynon Taf", "Swansea",
+        "Torfaen", "Vale of Glamorgan", "Wrexham"
+    ],
+    "Scotland": [
+        "Aberdeen City", "Aberdeenshire", "Angus", "Argyll and Bute",
+        "Clackmannanshire", "Dumfries and Galloway", "Dundee City", "East Ayrshire",
+        "East Dunbartonshire", "East Lothian", "East Renfrewshire", "Edinburgh",
+        "Falkirk", "Fife", "Glasgow", "Highland", "Inverclyde", "Midlothian",
+        "Moray", "North Ayrshire", "North Lanarkshire", "Orkney Islands",
+        "Perth and Kinross", "Renfrewshire", "Scottish Borders", "Shetland Islands",
+        "South Ayrshire", "South Lanarkshire", "Stirling", "West Dunbartonshire",
+        "West Lothian", "Western Isles"
+    ],
+    "Northern Ireland": [
+        "Antrim and Newtownabbey", "Ards and North Down", "Armagh City, Banbridge and Craigavon",
+        "Belfast", "Causeway Coast and Glens", "Derry and Strabane",
+        "Fermanagh and Omagh", "Lisburn and Castlereagh", "Mid and East Antrim",
+        "Mid Ulster", "Newry, Mourne and Down"
+    ]
+}
 
 UK_PROPERTY_TYPES = [
     "detached",
