@@ -3,6 +3,9 @@ from datetime import datetime
 from tabulate import tabulate
 from pathlib import Path
 
+from Environment.Housing.vocab import UK_REGIONS
+from fuzzy_utils import fuzzy_match
+from vocab import UK_COUNTIES, UK_DISTRICTS, UK_PROPERTY_TYPES, UK_POSTCODE_AREAS, UK_REGIONS
 
 class House:
     """
@@ -15,6 +18,11 @@ class House:
         self.date = date
         self.county = county
         self.district = district
+        self.UK_COUNTIES = UK_COUNTIES
+        self.UK_DISTRICTS = UK_DISTRICTS
+        self.UK_PROPERTY_TYPES = UK_PROPERTY_TYPES
+        self.UK_POSTCODE_AREAS = UK_POSTCODE_AREAS
+        self.UK_REGIONS = UK_REGIONS
 
 class HousingMarket:
     """
@@ -23,45 +31,6 @@ Store a collection of UK regions and their counties, to enable searching by regi
     """
     def __init__(self):
         self.houses = []
-        self.UK_REGIONS = UK_REGIONS = {
-            "north_east": [
-                "County Durham", "Northumberland", "Tyne and Wear"
-            ],
-            "north_west": [
-                "Cheshire", "Cumbria", "Greater Manchester", "Lancashire", "Merseyside"
-            ],
-            "yorkshire_humber": [
-                "East Riding of Yorkshire", "North Lincolnshire", "North East Lincolnshire",
-                "North Yorkshire", "South Yorkshire", "West Yorkshire"
-            ],
-            "east_midlands": [
-                "Derbyshire", "Leicestershire", "Lincolnshire", "Northamptonshire", "Nottinghamshire"
-            ],
-            "west_midlands": [
-                "Herefordshire", "Shropshire", "Staffordshire", "Warwickshire", "West Midlands", "Worcestershire"
-            ],
-            "east_of_england": [
-                "Bedfordshire", "Cambridgeshire", "Essex", "Hertfordshire", "Norfolk", "Suffolk"
-            ],
-            "south_east": [
-                "Berkshire", "Buckinghamshire", "East Sussex", "Hampshire", "Kent",
-                "Oxfordshire", "Surrey", "West Sussex"
-            ],
-            "south_west": [
-                "Bristol", "Cornwall", "Devon", "Dorset", "Gloucestershire",
-                "Somerset", "Wiltshire"
-            ],
-            "london": [
-                "Greater London"
-            ],
-            "wales": [
-                "Blaenau Gwent", "Bridgend", "Caerphilly", "Cardiff", "Carmarthenshire",
-                "Ceredigion", "Conwy", "Denbighshire", "Flintshire", "Gwynedd",
-                "Isle of Anglesey", "Merthyr Tydfil", "Monmouthshire", "Neath Port Talbot",
-                "Newport", "Pembrokeshire", "Powys", "Rhondda Cynon Taf", "Swansea",
-                "Torfaen", "Vale of Glamorgan", "Wrexham"
-            ]
-        }
 
     def add_house(self, house):
         self.houses.append(house)
@@ -175,6 +144,7 @@ Store a collection of UK regions and their counties, to enable searching by regi
                districts=None,
                regions=None,
                years=None,
+               postcode_prefixes=None,
                after_date=None,
                before_date=None):
         """
@@ -213,6 +183,12 @@ Store a collection of UK regions and their counties, to enable searching by regi
                 allowed_counties.extend(self.UK_REGIONS.get(region, []))
             results = [h for h in results if h.county in allowed_counties]
 
+        if postcode_prefixes:
+            results = [
+                h for h in results
+                if any(h.postcode.startswith(prefix) for prefix in postcode_prefixes)
+            ]
+
         if years:
             results = [h for h in results if h.date.year in years
                        ]
@@ -223,6 +199,67 @@ Store a collection of UK regions and their counties, to enable searching by regi
             results = [h for h in results if h.date <= before_date]
 
         return results
+
+    # -------------------------
+    # Query Data
+    # -------------------------
+
+    def natural_search(self, text, base_path):
+        params = self.interpret_query(text)
+        return self.process_and_display(base_path=base_path, **params)
+
+    def interpret_query(self, text):
+        """
+        Function to interpret the query and what the user wants to search based on what they input
+        :param text:
+        :return:
+        """
+        text = text.lower()
+
+        params = {
+            "counties": [],
+            "districts": [],
+            "regions": [],
+            "property_types": [],
+            "postcode_prefixes": [],
+            "min_price": None,
+            "max_price": None,
+            "years": []
+        }
+
+        # Fuzzy match counties
+        for c in self.UK_COUNTIES:
+            if fuzzy_match(text, [c]):
+                params["counties"].append(c)
+
+        # Fuzzy match districts
+        for d in self.UK_DISTRICTS:
+            if fuzzy_match(text, [d]):
+                params["districts"].append(d)
+
+        # Property types (exact match is fine)
+        for p in self.UK_PROPERTY_TYPES:
+            if p in text:
+                params["property_types"].append(p)
+
+        # Postcode prefixes
+        for prefix in self.UK_POSTCODE_AREAS:
+            if prefix.lower() in text:
+                params["postcode_prefixes"].append(prefix)
+
+        # Extract price like "200k"
+        import re
+        price_match = re.search(r"(\d{2,3})k", text)
+        if price_match:
+            params["max_price"] = int(price_match.group(1)) * 1000
+
+        # Extract years
+        for y in range(2018, 2026):
+            if str(y) in text:
+                params["years"].append(y)
+
+        return params
+
 
     # -------------------------
     #Printing the data
@@ -254,6 +291,7 @@ Store a collection of UK regions and their counties, to enable searching by regi
                             counties=None,
                             districts=None,
                             regions=None,
+                            postcode_prefixes=None,
                             after_date=None,
                             before_date=None,
                             limit=20,
@@ -275,6 +313,7 @@ Store a collection of UK regions and their counties, to enable searching by regi
             districts=districts,
             regions=regions,
             years=years,
+            postcode_prefixes=postcode_prefixes,
             after_date=after_date,
             before_date=before_date
         )
@@ -294,7 +333,6 @@ market = HousingMarket()
 
 market.process_and_display(
     years=[2023],
-    counties="Nottinghamshire",
     limit=15,
     base_path=r"C:\Users\User\PycharmProjects\Dissertation\Environment\Housing\HM Land Registery Price Paid"
 )
