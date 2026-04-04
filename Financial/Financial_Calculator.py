@@ -229,7 +229,7 @@ class SalaryCalculator:
         # Child Benefit Settings
         self.number_of_children = number_of_children
         self.receive_child_benefit = receive_child_benefit
-        self.pension_contribution_gross = pension_contribution_gross
+        self.pension_contributions_gross = pension_contribution_gross
 
         # ANI Deductions
         self.gift_aid = gift_aid
@@ -376,7 +376,7 @@ class SalaryCalculator:
     # ----------------------------------------------------------------------
 
     def _calculate_child_benefit_amount(self):
-        if not self.receives_child_benefit or self.number_of_children == 0:
+        if not self.receive_child_benefit or self.number_of_children == 0:
             return 0
 
         first_child = 26.05 * 52
@@ -519,41 +519,3 @@ class SalaryCalculator:
             "child_benefit_charge": self.calculate_child_benefit_charge(),
             "net_pay": self.calculate_net_pay()
         }
-
-
-def calculate_net_income(gross_salary, tax_year):
-    """
-    A function that calculates the income of the user after tax
-    :param gross_salary:
-    :param tax_year:
-    :return:
-    """
-
-
-# def get tax brackets from user
-
-
-
-
-def calculate_monthly_expenses(housing_cost, utilities, food, transport, misc):
-    """
-    A function that calculates the monthly expenses of the user, we need to find out how much the users current rent is,
-    how much utilities they pay, how much it is for them to get to and from work, and misc can be any hobbies or extra
-    they pay for anything else
-    :param housing_cost: 
-    :param utilities: 
-    :param food: 
-    :param transport: 
-    :param misc: 
-    :return: 
-    """
-
-
-
-def calculate_savings(net_income, expenses):
-    """
-    A function to calculate realistic savings for the user
-    :param net_income:
-    :param expenses:
-    :return:
-    """

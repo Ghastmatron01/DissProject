@@ -1,6 +1,6 @@
 # file to be an Expense manager for the user
 
-class expense_manager:
+class ExpenseManager:
     """
     Handles the user-defined expenses.
     Will allow for the adding, removing, grouping and calculating totals
@@ -39,11 +39,18 @@ class expense_manager:
     # Recurring expenses
     # -------------------------
     def add_expense(self, category, name, amount, frequency="monthly"):
-        if category not in self.categories:
+        if category not in self.DEFAULT_CATEGORIES:
+            raise ValueError(
+                f"Invalid Category: {category}. "
+                f"Must be one of: {self.DEFAULT_CATEGORIES}"
+            )
             self.categories[category] = {}
 
         if frequency not in ["daily", "weekly", "monthly", "annual"]:
             raise ValueError("Invalid frequency")
+
+        if amount < 0:
+            raise ValueError("Amount cannot be negative")
 
         self.categories[category][name] = {
             "amount": amount,
@@ -51,14 +58,23 @@ class expense_manager:
         }
 
     def _convert_to_monthly(self, amount, frequency):
-        if frequency == "monthly":
-            return amount
-        if frequency == "weekly":
-            return amount * 52 / 12
-        if frequency == "annual":
-            return amount / 12
-        if frequency == "daily":
-            return amount * 365 / 12
+        """
+        Converts any frequency to the monthly equivalent
+        :param amount: 
+        :param frequency: 
+        :return: 
+        """
+        conversion_rates = {
+            "daily": amount*365/12,
+            "weekly": amount*52/12,
+            "monthly": amount,
+            "annual": amount/12
+        }
+        
+        if frequency not in conversion_rates:
+            raise ValueError(f"Invalid frequency: {frequency}")
+        
+        return conversion_rates[frequency]
 
     # -------------------------
     # One-off expenses
@@ -83,13 +99,20 @@ class expense_manager:
     # -------------------------
     # Totals
     # -------------------------
-    def total_monthly(self):
+    def calculate_total_monthly(self):
         recurring_total = 0
         for cat_expenses in self.categories.values():
             for data in cat_expenses.values():
                 recurring_total += self._convert_to_monthly(data["amount"], data["frequency"])
 
         return recurring_total + self.monthly_one_off_total()
+
+    def total_monthly(self):
+        """
+        Deprecated: Use calculate_total_monthly instead
+        :return:
+        """
+        return self.calculate_total_monthly()
 
     def breakdown(self):
         return {
