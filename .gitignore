@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+.venv/
+venv/
+
+# Data files (too large for GitHub — keep locally only)
+data/*.xlsx
+data/*.xls
+data/*.csv
+data/*.ods
+data/*.db
+data/chroma_langchain_db/
+
+# IDE
+.idea/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
