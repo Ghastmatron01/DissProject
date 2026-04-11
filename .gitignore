@@ -8,11 +8,8 @@ __pycache__/
 .venv/
 venv/
 
-# Data files (too large for GitHub — keep locally only)
-data/*.xlsx
-data/*.xls
-data/*.csv
-data/*.ods
+# Data files — tracked via Git LFS (see .gitattributes)
+# Only exclude files that should never be uploaded
 data/*.db
 data/chroma_langchain_db/
 
