@@ -2,6 +2,8 @@ from typing import Optional, List, Dict
 import pandas as pd
 import numpy as np
 import os
+import zipfile
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 # small helper function to robustly parse dates with multiple possible formats
@@ -28,6 +30,7 @@ class DataExtractor:
     - load_housing_data: cleaned housing price data
     - load_ehs: cleaned English Housing Survey data
     - load_land_registry: loads a cleaned time-series of prices
+    - load_income__after_tax_percentile: loads a cleaned percentile of wages
     """
 
     def __init__(self, seed: Optional[int] = None):
@@ -237,6 +240,130 @@ class DataExtractor:
         tidy = tidy.dropna(subset=["price"])
         tidy["date"] = pd.to_datetime(tidy[date_col]).dt.date
         return tidy[["date", "region", "price"]].reset_index(drop=True)
+
+    def load_income_after_tax_percentiles(self, file_path: str, tax_year: str = "2022 to 2023") -> Dict[int, float]:
+        """
+        Extracts income-after-tax percentile points from the HMRC Table 3.1a xlsx file.
+
+        This file uses a non-standard OOXML namespace (purl.oclc.org) which causes
+        openpyxl and pandas to report 0 sheets. We bypass this by reading the xlsx
+        zip archive and parsing the XML directly.
+
+        The target sheet ('Table_3.1a_2223') has the layout:
+            - Rows 1–4:  Title and notes (skipped)
+            - Row 5:     Column headers — "Percentile point ...", "1999 to 2000", ..., "2022 to 2023"
+            - Rows 6–104: One row per percentile (1–99)
+            - Row 105:   "End of worksheet" (skipped)
+
+        Args:
+            file_path (str): Path to Table_3.1a_2223.xlsx
+            tax_year (str): The column header to extract, e.g. "2022 to 2023"
+
+        Returns:
+            dict mapping percentile (int) → annual income after tax (float), e.g.
+            {1: 12800.0, 2: 13100.0, ..., 99: 132000.0}
+            Percentiles with "[Not available]" are omitted.
+        """
+        NS = "http://purl.oclc.org/ooxml/spreadsheetml/main"
+
+        # ── helpers ──────────────────────────────────────────────────────────
+        def col_letter_to_index(col_str: str) -> int:
+            """Convert Excel column letter(s) to 0-based index. e.g. 'A'→0, 'Z'→25, 'AA'→26"""
+            index = 0
+            for char in col_str.upper():
+                index = index * 26 + (ord(char) - ord("A") + 1)
+            return index - 1
+
+        def cell_ref_to_col(ref: str) -> int:
+            """Extract column index from cell reference like 'B5' or 'AA10'."""
+            letters = "".join(ch for ch in ref if ch.isalpha())
+            return col_letter_to_index(letters)
+
+        # read raw XML from the zip
+        with zipfile.ZipFile(file_path) as z:
+            shared_raw = z.read("xl/sharedStrings.xml").decode("utf-8")
+            sheet_raw = z.read("xl/worksheets/sheet3.xml").decode("utf-8")
+
+        # build shared strings lookup
+        sst = ET.fromstring(shared_raw)
+        strings: List[str] = [
+            "".join(t.text or "" for t in si.iter(f"{{{NS}}}t"))
+            for si in sst.findall(f"{{{NS}}}si")
+        ]
+
+        def resolve_cell(c_elem) -> str:
+            """Return the string value of a cell element."""
+            t = c_elem.get("t", "")
+            v = c_elem.find(f"{{{NS}}}v")
+            raw = v.text if v is not None else ""
+            if t == "s" and raw:          # shared string index
+                return strings[int(raw)]
+            return raw                    # numeric or inline string
+
+        # parse all rows into a list-of-dicts {col_index: value}
+        root = ET.fromstring(sheet_raw)
+        parsed_rows: List[Dict[int, str]] = []
+
+        for row_elem in root.findall(f".//{{{NS}}}row"):
+            row_dict: Dict[int, str] = {}
+            for c in row_elem.findall(f"{{{NS}}}c"):
+                ref = c.get("r", "")
+                col_idx = cell_ref_to_col(ref) if ref else len(row_dict)
+                row_dict[col_idx] = resolve_cell(c)
+            parsed_rows.append(row_dict)
+
+        # locate the header row: find row where a cell is exactly "YYYY to YYYY"
+        # (avoids matching the title row where year ranges appear inside a sentence)
+        import re
+        year_range_pattern = re.compile(r"^\d{4} to \d{4}$")
+        header_row_idx = None
+        for i, row in enumerate(parsed_rows):
+            for val in row.values():
+                if year_range_pattern.match(val.strip()):
+                    header_row_idx = i
+                    break
+            if header_row_idx is not None:
+                break
+
+        if header_row_idx is None:
+            raise ValueError("Could not find header row in sheet. Check the file structure.")
+
+        header = parsed_rows[header_row_idx]
+
+        # find which column index holds the requested tax year
+        target_col = None
+        for col_idx, val in header.items():
+            if tax_year.lower() in val.lower():
+                target_col = col_idx
+                break
+
+        if target_col is None:
+            available = [v for v in header.values() if "to" in v]
+            raise ValueError(
+                f"Tax year '{tax_year}' not found in headers.\n"
+                f"Available years: {available}"
+            )
+
+        # extract percentile → income pairs from data rows
+        percentile_col = min(header.keys())   # leftmost column = percentile number
+        result: Dict[int, float] = {}
+
+        for row in parsed_rows[header_row_idx + 1:]:
+            # Skip footer rows (e.g. "End of worksheet")
+            percentile_raw = row.get(percentile_col, "").strip()
+            if not percentile_raw.isdigit():
+                continue
+
+            income_raw = row.get(target_col, "").strip()
+            if not income_raw or income_raw.lower() in {"[not available]", "n/a", ""}:
+                continue  # omit unavailable entries
+
+            try:
+                result[int(percentile_raw)] = float(income_raw)
+            except ValueError:
+                continue   # skip any unexpected non-numeric value
+
+        return result
 
     @staticmethod
     def _to_bool(val) -> Optional[bool]:

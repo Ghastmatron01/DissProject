@@ -14,13 +14,54 @@ class House:
     """
     Store basic house information
     """
-    def __init__(self, price, postcode, property_type, date, county, district):
+    def __init__(self, price, postcode, property_type, date, county, district, bedrooms=None):
         self.price = price
         self.postcode = postcode
         self.property_type = property_type
         self.date = date
         self.county = county
         self.district = district
+        self.bedrooms = bedrooms  # None when loaded from Land Registry
+
+    def estimate_bedrooms(self):
+        """
+        Estimate bedroom count from property type and price.
+        Used when real bedroom data is unavailable (e.g. Land Registry CSVs).
+
+        Logic:
+            - Base range is determined by property type
+            - Price within that type nudges the estimate up or down
+              (cheaper = smaller, more expensive = larger)
+
+        Returns: int — estimated number of bedrooms
+        """
+        ranges = {
+            "flat":          (1, 2),
+            "terraced":      (2, 3),
+            "semi_detached": (3, 4),
+            "detached":      (3, 5),
+            "other":         (2, 4),
+        }
+
+        low, high = ranges.get(self.property_type, (2, 3))
+
+        if self.price < 150_000:
+            return low                      # Cheaper → smaller
+        elif self.price > 500_000:
+            return high                     # More expensive → larger
+        else:
+            return round((low + high) / 2)  # Mid-range → middle estimate
+
+    def get_bedrooms(self):
+        """
+        Return real bedroom count if known, otherwise fall back to estimate.
+        Use this in scoring so the code never needs to check which one to use.
+
+        Returns: int — bedroom count (real or estimated)
+        """
+        if self.bedrooms is not None:
+            return self.bedrooms
+        return self.estimate_bedrooms()
 
 class HousingMarket:
     """
