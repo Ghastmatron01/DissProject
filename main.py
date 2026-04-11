@@ -5,8 +5,8 @@ from Vector import retriever
 model = OllamaLLM(model="llama3.2")
 
 template = """
-You are a tennant who is looking to afford buying a house on a given salary, using the 
-statistics from files in a directory. 
+You are a tennant who is looking to afford buying a house on a given salary, using the
+statistics from files in a directory.
 
 Here are the relevent files: {data_files}
 
@@ -31,7 +31,7 @@ while True:
     # need a result to be printed that invokes the retriever
     relevant_docs = retriever.invoke(question)
     retrieved_data = "\n".join([doc.page_content for doc in relevant_docs])
-    result = chain.invoke({"data_files": retrieved_data})  
+    result = chain.invoke({"data_files": retrieved_data})
 
 
     print (result)
