@@ -4,26 +4,36 @@ from Environment.Mortgages.mortgage_products import MORTGAGE_PRODUCTS
 
 class MortgageProduct:
     """
-    Class that represents a mortgage product and the rates of that product
+    Represents a single mortgage product loaded from the MORTGAGE_PRODUCTS
+    data file. Holds rates, fees, and deposit requirements for one product.
     """
-    def __init__ (self, product_id):
+
+    def __init__(self, product_id):
+        """
+        Load a mortgage product's details from the data file by its ID.
+
+        :param product_id: Key in MORTGAGE_PRODUCTS (e.g. "FIXED_2_5.2").
+        """
+        data = MORTGAGE_PRODUCTS[product_id]  # Look up the product once
+
         self.product_id = product_id
-        self.name = MORTGAGE_PRODUCTS[product_id]["name"]
-        self.bank = MORTGAGE_PRODUCTS[product_id]["bank"]
-        self.rate = MORTGAGE_PRODUCTS[product_id]["rate"]
-        self.term = MORTGAGE_PRODUCTS[product_id]["term"]
-        self.min_deposit = MORTGAGE_PRODUCTS[product_id]["min_deposit"]
-        self.min_deposit_percent = MORTGAGE_PRODUCTS[product_id]["min_deposit"]
-        self.max_ltv = MORTGAGE_PRODUCTS[product_id]["max_ltv"]
-        self.arrangement_fee = MORTGAGE_PRODUCTS[product_id]["arrangement_fee"]
-        self.valuation_fee = MORTGAGE_PRODUCTS[product_id]["valuation_fee"]
-        self.early_repay_charge = MORTGAGE_PRODUCTS[product_id]["early_repay_charge"]
-        self.type = MORTGAGE_PRODUCTS[product_id]["type"]
+        self.name = data["name"]
+        self.bank = data["bank"]
+        self.rate = data["rate"]
+        self.term = data["term"]
+        self.min_deposit = data["min_deposit"]
+        self.min_deposit_percent = data["min_deposit"]
+        self.max_ltv = data["max_ltv"]
+        self.arrangement_fee = data["arrangement_fee"]
+        self.valuation_fee = data["valuation_fee"]
+        self.early_repay_charge = data["early_repay_charge"]
+        self.type = data["type"]
 
     def get_details(self):
         """
-        What are the details of the product
-        :return: The details of the product in a nice table using tabulate
+        Format all product details into a readable table.
+
+        :return: Formatted string table of the product's key fields.
         """
         details = [
             ["Product ID", self.product_id],
@@ -41,57 +51,42 @@ class MortgageProduct:
 
     def monthly_rate(self):
         """
-        Get the monthly interest rate as a decimal
-        :return: Monthly interest rate (e.g., 0.004375 for 5.25% annual)
+        Convert the annual interest rate to a monthly decimal rate.
+
+        :return: Monthly interest rate (e.g. 0.004375 for 5.25% annual).
         """
         return self.rate / 12 / 100
 
     def can_borrow(self, property_price, deposit):
         """
-        Can the user borrow this amount based on the property price and deposit?
+        Check whether a borrower's deposit meets this product's requirements.
 
-        :param property_price: Total property price
-        :param deposit: Deposit amount available
-        :return: (can_borrow: bool, max_loan: float, required_deposit: float)
+        :param property_price: Total property price.
+        :param deposit: Deposit amount available.
+        :return: Tuple of (can_borrow, max_loan, required_deposit).
         """
-        # Required deposit for this product
+        # Minimum deposit required for this product
         required_deposit = property_price * self.min_deposit_percent
 
-        # Maximum can borrow based on this product's LTV limit
+        # Maximum loan this product allows based on LTV limit
         max_loan = property_price * self.max_ltv
 
-        # Actual loan if deposit is used
+        # Actual loan amount if the full deposit is used
         actual_loan = property_price - deposit
 
-        # Can borrow if both conditions met:
-        # 1. Deposit >= required AND
-        # 2. Loan <= max LTV
+        # Both conditions must be met: enough deposit AND loan within LTV
         can_borrow = (deposit >= required_deposit) and (actual_loan <= max_loan)
 
         return can_borrow, max_loan, required_deposit
 
     def is_fixed(self):
         """
-        Check if the product is fixed-rate (vs variable).
+        Check if this product is fixed-rate (as opposed to variable).
 
-        :return: True if fixed, False if variable
+        :return: True if fixed, False if variable.
         """
         return self.type.lower() == "fixed"
 
-
     def __repr__(self):
-        """String representation for debugging/printing."""
+        """Return a readable summary for debugging and printing."""
         return f"{self.bank} - {self.name} @ {self.rate}%"
-
-
-
-
-
-
-
-
-
-
-
-
-
