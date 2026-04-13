@@ -1,15 +1,16 @@
 from pathlib import Path
 from Algorithms.Data_Extraction import DataExtractor
 
+
 class HousingPreferenceEvaluator:
     """
     Generates housing preferences based on an agent's life stage,
     and allows specific values to be overridden by user input.
 
     Flow:
-        1. evaluate_preferences()  → generates base preferences from life situation
-        2. override_preferences()  → user adjusts specific fields (optional)
-        3. score_property()        → scores a property against the final preferences
+        1. evaluate_preferences()  - generates base preferences from life situation
+        2. override_preferences()  - user adjusts specific fields (optional)
+        3. score_property()        - scores a property against the final preferences
     """
 
     def __init__(self):
@@ -27,44 +28,18 @@ class HousingPreferenceEvaluator:
     def evaluate_preferences(self, agent_age, agent_income, family_size):
         """
         Generate base housing preferences from the agent's life circumstances.
-        These are algorithm-driven defaults — no user input needed here.
+        These are algorithm-driven defaults - no user input needed here.
 
-        Input:
-            - agent_age (int): Age of the agent (e.g., 25)
-            - agent_income (float): Annual gross income (e.g., 40000.0)
-            - family_size (int): Number of people in household (e.g., 1)
-
-        Output: dict with generated preferences
-        {
-            "preferred_location": "city" | "suburban" | "countryside",
-            "preferred_property_types": ["flat", "terraced"],
-            "min_bedrooms": 1,
-            "max_bedrooms": 2,
-            "min_price": 100000,
-            "max_price": 250000,
-            "weights": {
-                "price": 0.4,
-                "location": 0.3,
-                "property_type": 0.2,
-                "size": 0.1
-            }
-        }
-
-        Logic to implement:
-            Age 18-29 + low income  → city, flat/terraced, 1-2 bed, lower price range
-            Age 30-45 + mid income  → suburban, semi/detached, 2-3 bed, mid price range
-            Age 46-65 + high income → countryside/suburban, detached, 3-4 bed, higher range
-            Family size > 2         → push bedrooms up, prefer detached/semi
-            Income multiplier       → max_price ≈ income * 4.5 (rough affordability ceiling)
+        :param agent_age: Age of the agent (e.g. 25).
+        :param agent_income: Annual gross income (e.g. 40000.0).
+        :param family_size: Number of people in household (e.g. 1).
+        :return: Dict with preferred_location, preferred_property_types,
+                 min/max_bedrooms, min/max_price, and weights.
         """
-        # Find which percentile the agent's income falls into.
-        # income_percentile() does the lookup using self.income_percentiles.
+        # Find which percentile bracket the agent's income falls into
         income_bracket = self.income_percentile(agent_income)
 
-        # income_bracket is now one of: "low" | "mid" | "high"
-        # Use it below alongside agent_age to determine preferences.
-
-        # age band
+        # Determine age band from the agent's age
         if 18 <= agent_age <= 29:
             age_band = "young"
         elif 30 <= agent_age <= 45:
@@ -72,7 +47,7 @@ class HousingPreferenceEvaluator:
         else:
             age_band = "later_life"
 
-        # pick base preferences from age + income matrix
+        # Pick base preferences from the age + income matrix
         if age_band == "young" and income_bracket == "low":
             location = "city"
             property_types = ["flat", "terraced"]
@@ -118,16 +93,15 @@ class HousingPreferenceEvaluator:
             property_types = ["detached"]
             min_bed, max_bed = 3, 5
 
-        # family size adjustment - more people = more bedrooms needed
+        # Family size adjustment - more people need more bedrooms
         if family_size > 2:
             min_bed = min(min_bed + 1, 5)
             max_bed = min(max_bed + 1, 6)
 
-        # Step 4: price range from income
+        # Price range derived from income multiplier
         max_price = agent_income * 4.5
-        min_price = agent_income * 2.0  # won't bother with anything too cheap
+        min_price = agent_income * 2.0  # ignore properties that are too cheap
 
-        # return the preferences dict
         return {
             "preferred_location": location,
             "preferred_property_types": property_types,
@@ -145,17 +119,13 @@ class HousingPreferenceEvaluator:
 
     def income_percentile(self, income):
         """
-        Works out the percentile of income based on income after tax, then if it falls within a certain range
-        that will define what they can afford
-        1-25:  low income
-        26-75: mid income
-        76-99: high income
+        Determine the income bracket by comparing the agent's income
+        against national percentile thresholds.
 
-        :param income: The income of the user after tax
-        :return: str — "low", "mid", or "high"
+        :param income: The income of the user after tax.
+        :return: "low", "mid", or "high".
         """
-        # Iterate in sorted order (1 → 99) so the first match is the correct bracket.
-        # sorted() guarantees we check percentile 1 before 2 before 3 etc.
+        # Iterate in sorted order (1 to 99) so the first match is the correct bracket
         for percentile in sorted(self.income_percentiles.keys()):
             if income <= self.income_percentiles[percentile]:
                 # Found the first percentile whose threshold is >= the agent's income
@@ -166,28 +136,18 @@ class HousingPreferenceEvaluator:
                 else:
                     return "high"
 
-        # Fallback: income is above the 99th percentile value — still "high"
+        # Fallback: income is above the 99th percentile value
         return "high"
 
     def override_preferences(self, base_preferences, user_overrides):
         """
         Merge user-supplied overrides into the algorithm-generated preferences.
-        Any key in user_overrides will replace the corresponding key in base_preferences.
-        Keys not provided in user_overrides are left as the algorithm generated them.
+        Any key in user_overrides replaces the matching key in base_preferences.
+        Keys not provided in user_overrides are left unchanged.
 
-        Input:
-            - base_preferences (dict): Output from evaluate_preferences()
-            - user_overrides (dict): Any subset of preference keys the user wants to set.
-
-        Example user_overrides:
-        {
-            "preferred_location": "countryside",       # User wants countryside
-            "preferred_property_types": ["detached"],  # User only wants detached
-            "max_price": 400000                        # User has specific budget
-        }
-
-        Output: dict — merged preferences ready to pass into score_property()
-
+        :param base_preferences: Dict output from evaluate_preferences().
+        :param user_overrides: Dict of preference keys to replace.
+        :return: Merged preferences dict ready for score_property().
         """
         merged = base_preferences.copy()
         merged.update(user_overrides)
@@ -198,49 +158,21 @@ class HousingPreferenceEvaluator:
         Score how well a specific property matches the final preferences.
         Called after evaluate_preferences() and optionally override_preferences().
 
-        Input:
-            - property_obj: House object (has .price, .property_type, .county, .district)
-            - preferences (dict): Final preferences dict (from evaluate or override)
-
-        Output: float (0-100) representing how well the property fits
-
-        Scoring breakdown (uses weights from preferences["weights"]):
-            - Price score:         Is the price within min_price → max_price?
-                                   100 = within range, scales down outside range
-            - Location score:      Does the county/district match preferred_location type?
-                                   100 = exact match, 50 = partial, 0 = mismatch
-            - Property type score: Is the property_type in preferred_property_types?
-                                   100 = match, 0 = no match
-            - Size score:          Does bedroom count fall within min_bedrooms → max_bedrooms?
-                                   100 = within range, partial credit if close
-                                   Use property_obj.get_bedrooms() — this returns the real
-                                   bedroom count if known, or an estimate from type+price
-                                   if the Land Registry data didn't include it.
-
-        Final score:
-            score = (price_score   * weights["price"]
-                  +  location_score * weights["location"]
-                  +  type_score     * weights["property_type"]
-                  +  size_score     * weights["size"])
-
-        Example size scoring:
-            bedrooms = property_obj.get_bedrooms()
-            if preferences["min_bedrooms"] <= bedrooms <= preferences["max_bedrooms"]:
-                size_score = 100
-            elif bedrooms < preferences["min_bedrooms"]:
-                size_score = max(0, 100 - (preferences["min_bedrooms"] - bedrooms) * 25)
-            else:
-                size_score = max(0, 100 - (bedrooms - preferences["max_bedrooms"]) * 25)
+        :param property_obj: House object (has .price, .property_type, .county, .district).
+        :param preferences: Final preferences dict (from evaluate or override).
+        :return: Float (0-100) representing how well the property fits.
         """
-        # Price score
+        # -- Price score --
         if preferences["min_price"] <= property_obj.price <= preferences["max_price"]:
             price_score = 100
         elif property_obj.price < preferences["min_price"]:
+            # Below budget floor - scale down based on how far below
             price_score = max(0, 100 - (preferences["min_price"] - property_obj.price) / preferences["min_price"] * 100)
         else:
+            # Above budget ceiling - scale down based on how far above
             price_score = max(0, 100 - (property_obj.price - preferences["max_price"]) / preferences["max_price"] * 100)
 
-        # Location score (simplified: county/district → location type)
+        # -- Location score --
         location_type = self.map_location_to_type(property_obj.county, property_obj.district)
         if location_type == preferences["preferred_location"]:
             location_score = 100
@@ -249,13 +181,13 @@ class HousingPreferenceEvaluator:
         else:
             location_score = 0
 
-        # Property type score
+        # -- Property type score --
         if property_obj.property_type in preferences["preferred_property_types"]:
             type_score = 100
         else:
             type_score = 0
 
-        # Size score
+        # -- Size score (bedrooms) --
         bedrooms = property_obj.get_bedrooms()
         if preferences["min_bedrooms"] <= bedrooms <= preferences["max_bedrooms"]:
             size_score = 100
@@ -264,7 +196,7 @@ class HousingPreferenceEvaluator:
         else:
             size_score = max(0, 100 - (bedrooms - preferences["max_bedrooms"]) * 25)
 
-        # Final weighted score
+        # -- Final weighted score --
         weights = preferences.get("weights", {"price": 0.4, "location": 0.3, "property_type": 0.2, "size": 0.1})
         final_score = (price_score * weights.get("price", 0.4) +
                        location_score * weights.get("location", 0.3) +
@@ -275,14 +207,13 @@ class HousingPreferenceEvaluator:
 
     def map_location_to_type(self, county, district):
         """
-        Function to make a fuzzy match of county or districts to where the user wants to be
-        Will work out if the county is the county or district the user wanted, if not, how close
-        to that county or district.
-        :param county:
-        :param district:
-        :return:
+        Map a county or district name to a broad location type using
+        simple keyword lists.
+
+        :param county: County name from the property record.
+        :param district: District name from the property record.
+        :return: "city", "suburban", "countryside", or "unknown".
         """
-        # This is a placeholder implementation. Need more comprehensive mapping
         city_areas = ["Greater London", "Manchester", "Birmingham", "Leeds"]
         suburban_areas = ["Surrey", "Kent", "Essex", "Hertfordshire"]
         countryside_areas = ["Cornwall", "Devon", "Lake District", "Yorkshire Dales"]
@@ -296,84 +227,67 @@ class HousingPreferenceEvaluator:
         else:
             return "unknown"
 
-    def is_partial_location_match(self, location_type, param):
+    def is_partial_location_match(self, location_type, preferred):
         """
-        Determines if the location type is a partial match to the preferred location.
-        For example, if preferred_location is "suburban", then "city" might be a partial match
-        because some city areas can feel suburban, but "countryside" would not be.
+        Check whether two location types are close enough to count
+        as a partial match (worth half marks in scoring).
 
-        This is a simplified example. In a real implementation, you'd want a more nuanced
-        mapping based on actual geographic data.
-
-        :param location_type: The location type of the property (e.g., "city", "suburban", "countryside")
-        :param param: The user's preferred location type (e.g., "city", "suburban", "countryside")
-        :return: True if it's a partial match, False otherwise
+        :param location_type: The location type of the property (e.g. "city").
+        :param preferred: The user's preferred location type (e.g. "suburban").
+        :return: True if it counts as a partial match, False otherwise.
         """
-        # Define some simple rules for partial matches:
-        # Will be adjusted at a later date, ideal would be to compare the green areas to suburben or city in the district
-        # to calculate if it is what the user wants.
-        if param == "city" and location_type == "suburban":
+        # Adjacent location types count as partial matches
+        if preferred == "city" and location_type == "suburban":
             return True
-        if param == "suburban" and location_type in ["city", "countryside"]:
+        if preferred == "suburban" and location_type in ["city", "countryside"]:
             return True
-        if param == "countryside" and location_type == "suburban":
+        if preferred == "countryside" and location_type == "suburban":
             return True
         return False
 
-#-----------------------------------------------------------------------------------------------------------------------------------
-#-----------------------------------------------------------------------------------------------------------------------------------
-#-----------------------------------------------------------------------------------------------------------------------------------
-#-----------------------------------------------------------------------------------------------------------------------------------
-#-----------------------------------------------------------------------------------------------------------------------------------
+
+# --------------------------------------------------------------------
+# --------------------------------------------------------------------
+
 
 class FinancialAffordabilityEvaluator:
     """
-    Evaluates whether an agent can afford a specific mortgage on a specific property.
+    Evaluates whether an agent can afford a specific mortgage on a
+    specific property.
 
-    This class acts as the bridge between the agent's financial data and the
-    MortgageCalculator. It:
-      1. Uses MortgageCalculator.check_lending_criteria() to check bank approval rules
-      2. Adds UK-standard age checks (agent must be 18-70, must finish before 75)
-      3. Scores how comfortable the mortgage is beyond just pass/fail
+    This class bridges the agent's financial data and the MortgageCalculator.
+    It:
+      1. Uses MortgageCalculator.check_lending_criteria() to check bank approval rules.
+      2. Adds UK-standard age checks (must be 18-70, must finish before 75).
+      3. Scores how comfortable the mortgage is beyond just pass/fail.
     """
 
     def __init__(self):
-        # No state needed — this is a pure evaluator.
-        # MortgageProduct and MortgageCalculator are passed in per-call.
+        """Initialise the evaluator. No state needed - it is a pure evaluator."""
         pass
 
     def check_lending_criteria(self, agent_age, agent_income, deposit,
                                property_price, mortgage_product, mortgage_term=25):
         """
-        Check whether the agent meets a bank's lending criteria for a specific product.
-        Combines MortgageCalculator's built-in checks with age-based checks.
+        Check whether the agent meets a bank's lending criteria for a
+        specific mortgage product. Combines MortgageCalculator's built-in
+        checks with age-based checks.
 
-        Args:
-            agent_age (int):            Agent's current age
-            agent_income (float):       Annual gross income (before tax)
-            deposit (float):            Deposit amount the agent has saved
-            property_price (float):     Price of the property
-            mortgage_product:           MortgageProduct object from Environment.Mortgages
-            mortgage_term (int):        Repayment term in years (default 25)
-
-        Returns:
-            dict:
-            {
-                "passes":        bool   — True if ALL criteria are met
-                "ltv":           float  — Actual loan-to-value ratio (e.g. 0.82 = 82%)
-                "loan_amount":   float  — Actual loan amount (price - deposit)
-                "monthly_payment": float — Calculated monthly repayment
-                "age_at_end":    int    — Agent's age when mortgage finishes
-                "failed_checks": list  — Human-readable list of reasons for rejection
-                "flags":         list  — Warnings that don't block approval but are notable
-            }
+        :param agent_age: Agent's current age.
+        :param agent_income: Annual gross income (before tax).
+        :param deposit: Deposit amount the agent has saved.
+        :param property_price: Price of the property.
+        :param mortgage_product: MortgageProduct object from Environment.Mortgages.
+        :param mortgage_term: Repayment term in years (default 25).
+        :return: Dict with passes, ltv, loan_amount, monthly_payment,
+                 age_at_end, failed_checks, and flags.
         """
         from Environment.Mortgages.MortgageCalculator import MortgageCalculator
 
         failed_checks = []
         flags = []
 
-        # Age checks (not covered by MortgageCalculator)
+        # -- Age checks (not covered by MortgageCalculator) --
         age_at_end = agent_age + mortgage_term
 
         if agent_age < 18:
@@ -382,10 +296,10 @@ class FinancialAffordabilityEvaluator:
             failed_checks.append("Agent must be under 70 to apply for a new mortgage")
         if age_at_end > 75:
             failed_checks.append(
-                f"Mortgage would end at age {age_at_end} — banks require completion before 75"
+                f"Mortgage would end at age {age_at_end} - banks require completion before 75"
             )
 
-        # Use MortgageCalculator to check deposit, LTV and income rules
+        # -- MortgageCalculator checks (deposit, LTV, income rules) --
         calculator = MortgageCalculator(
             mortgage_product=mortgage_product,
             property_price=property_price,
@@ -395,7 +309,7 @@ class FinancialAffordabilityEvaluator:
 
         approved, reason, available_after = calculator.check_lending_criteria(
             annual_gross_income=agent_income,
-            existing_monthly_debts=0   # Existing debts not tracked yet — defaulting to 0
+            existing_monthly_debts=0   # Existing debts not tracked yet - defaulting to 0
         )
 
         if not approved:
@@ -409,11 +323,11 @@ class FinancialAffordabilityEvaluator:
         ltv = loan_amount / property_price if property_price > 0 else 0
         monthly_payment = calculator.calculate_monthly_payment()
 
-        # Soft flags (warnings, not failures)
+        # -- Soft flags (warnings, not failures) --
         if ltv > 0.90:
-            flags.append(f"High LTV: {ltv*100:.1f}% — expect higher interest rates")
+            flags.append(f"High LTV: {ltv*100:.1f}% - expect higher interest rates")
         if age_at_end > 70:
-            flags.append(f"Mortgage finishes at age {age_at_end} — lenders may scrutinise closely")
+            flags.append(f"Mortgage finishes at age {age_at_end} - lenders may scrutinise closely")
 
         return {
             "passes":          len(failed_checks) == 0,
@@ -428,25 +342,16 @@ class FinancialAffordabilityEvaluator:
     def calculate_affordability_score(self, monthly_income, monthly_payment,
                                       monthly_expenses, current_savings):
         """
-        Score how COMFORTABLE this mortgage is beyond just pass/fail lending criteria.
-        Useful for comparing two mortgages that both technically pass — which one
-        leaves the agent in a healthier financial position?
+        Score how comfortable a mortgage is beyond just pass/fail.
+        Useful for comparing two mortgages that both technically pass -
+        which one leaves the agent in a healthier financial position?
 
-        Args:
-            monthly_income (float):   Net monthly income (after tax)
-            monthly_payment (float):  Proposed mortgage monthly payment
-            monthly_expenses (float): Other regular outgoings (bills, food, transport)
-            current_savings (float):  Current savings balance
-
-        Returns:
-            dict:
-            {
-                "score":              float  — 0 to 100 (higher = more comfortable)
-                "available_monthly":  float  — Cash left after mortgage + expenses
-                "income_ratio":       float  — Fraction of income consumed (0.0–1.0+)
-                "has_emergency_fund": bool   — Has ≥ 6 months of expenses saved
-                "comfort_label":      str    — "Comfortable" / "Acceptable" / "Tight" / "Unaffordable"
-            }
+        :param monthly_income: Net monthly income (after tax).
+        :param monthly_payment: Proposed mortgage monthly payment.
+        :param monthly_expenses: Other regular outgoings (bills, food, transport).
+        :param current_savings: Current savings balance.
+        :return: Dict with score (0-100), available_monthly, income_ratio,
+                 has_emergency_fund, and comfort_label.
         """
         # Cash remaining after mortgage + all other expenses
         available_monthly = monthly_income - monthly_payment - monthly_expenses
@@ -455,23 +360,23 @@ class FinancialAffordabilityEvaluator:
         total_outgoings = monthly_payment + monthly_expenses
         income_ratio = total_outgoings / monthly_income if monthly_income > 0 else 1.0
 
-        # Emergency fund check: 6 months of expenses
+        # Emergency fund check: does the agent have 6 months of expenses saved
         emergency_fund_target = monthly_expenses * 6
         has_emergency_fund = current_savings >= emergency_fund_target
 
-        # Score from income ratio
-        # < 50% outgoings = comfortable   → 80–100
-        # 50–65% outgoings = acceptable   → 50–79
-        # 65–80% outgoings = tight        → 20–49
-        # > 80% outgoings = unaffordable  → 0–19
+        # -- Score from income ratio --
+        # < 50% outgoings = comfortable   (80-100)
+        # 50-65% outgoings = acceptable   (50-79)
+        # 65-80% outgoings = tight        (20-49)
+        # > 80% outgoings = unaffordable  (0-19)
         if income_ratio <= 0.50:
-            base_score = 100 - (income_ratio / 0.50) * 20      # 80–100
+            base_score = 100 - (income_ratio / 0.50) * 20
         elif income_ratio <= 0.65:
-            base_score = 79 - ((income_ratio - 0.50) / 0.15) * 29  # 50–79
+            base_score = 79 - ((income_ratio - 0.50) / 0.15) * 29
         elif income_ratio <= 0.80:
-            base_score = 49 - ((income_ratio - 0.65) / 0.15) * 29  # 20–49
+            base_score = 49 - ((income_ratio - 0.65) / 0.15) * 29
         else:
-            base_score = max(0, 19 - ((income_ratio - 0.80) / 0.20) * 19)  # 0–19
+            base_score = max(0, 19 - ((income_ratio - 0.80) / 0.20) * 19)
 
         # Emergency fund bonus/penalty
         if has_emergency_fund:
@@ -479,7 +384,7 @@ class FinancialAffordabilityEvaluator:
         else:
             base_score = max(0, base_score - 10)    # Penalty for no safety net
 
-        # Label
+        # Assign a human-readable comfort label
         if base_score >= 70:
             label = "Comfortable"
         elif base_score >= 45:
@@ -497,31 +402,30 @@ class FinancialAffordabilityEvaluator:
             "comfort_label":      label
         }
 
-#-----------------------------------------------------------------------------------------------------------------------------------
-#-----------------------------------------------------------------------------------------------------------------------------------
-#-----------------------------------------------------------------------------------------------------------------------------------
-#-----------------------------------------------------------------------------------------------------------------------------------
-#-----------------------------------------------------------------------------------------------------------------------------------
+
+# --------------------------------------------------------------------
+# --------------------------------------------------------------------
 
 
 class HappinessEvaluator:
     """
-    Calculates an agent's happiness score (0-100) from four independent components:
+    Calculates an agent's happiness score (0-100) from four independent
+    components:
 
-        1. Housing status  — having a home is fundamental        (±20)
-        2. Financial security — savings vs debt comfort          (±15)
-        3. Life events     — major positive/negative life events  (±15, capped)
-        4. Age factor      — subtle modifier based on life stage  (±5)
+        1. Housing status     - having a home is fundamental        (+/-20)
+        2. Financial security - savings vs debt comfort             (+/-15)
+        3. Life events        - major positive/negative life events (+/-15, capped)
+        4. Age factor         - subtle modifier based on life stage (+/-5)
+
+    All happiness numbers are estimated for now. A future survey will
+    provide real-world calibration data.
 
     Each component is capped so no single factor completely dominates.
     The final score is always clamped to [0, 100].
-
-    Also provides get_risk_tolerance() which converts happiness into a
-    willingness-to-stretch multiplier used in mortgage decision-making.
     """
 
     # Lookup table of known life events and their happiness impact.
-    # Add new events here — no logic changes needed elsewhere.
+    # Add new events here - no logic changes needed elsewhere.
     EVENT_IMPACTS = {
         "marriage":              +10,
         "birth_child":           +5,    # joy, but also stress
@@ -540,30 +444,18 @@ class HappinessEvaluator:
     def calculate_happiness_score(self, housing_status, financial_security,
                                   life_events, age):
         """
-        Calculate overall happiness score (0-100).
+        Calculate the overall happiness score from all four components.
 
-        Args:
-            housing_status (str):       "owned" | "renting" | "homeless"
-            financial_security (float): 0-100 score (high = comfortable savings/low debt)
-            life_events (list[str]):    Recent events, e.g. ["marriage", "job_loss"]
-                                        Unknown events are silently ignored.
-            age (int):                  Agent's current age
-
-        Returns:
-            dict:
-            {
-                "score":            float  — final clamped score (0-100)
-                "housing_component":   float
-                "financial_component": float
-                "events_component":    float
-                "age_component":       float
-                "breakdown":        str    — readable summary
-            }
+        :param housing_status: "owned", "renting", or "homeless".
+        :param financial_security: 0-100 score (high = comfortable savings/low debt).
+        :param life_events: List of recent event strings (e.g. ["marriage", "job_loss"]).
+        :param age: Agent's current age.
+        :return: Dict with score, component breakdowns, and a readable summary.
         """
-        # Base
+        # Start from a neutral baseline
         happiness = 50.0
 
-        # Housing component (±20)
+        # -- Housing component (+/-20) --
         housing_map = {
             "owned":    +20,
             "renting":  +10,
@@ -572,37 +464,33 @@ class HappinessEvaluator:
         housing_component = housing_map.get(housing_status, 0)
         happiness += housing_component
 
-        # Financial security component (±15)
-        # financial_security is 0-100; map it to -15 → +15
+        # -- Financial security component (+/-15) --
         # Score of 50 = neutral (0 change), 100 = +15, 0 = -15
         financial_component = ((financial_security - 50) / 50) * 15
         financial_component = max(-15, min(15, financial_component))
         happiness += financial_component
 
-        # Life events component (capped at ±15 total)
+        # -- Life events component (capped at +/-15 total) --
         raw_events_total = sum(
             self.EVENT_IMPACTS.get(event, 0) for event in life_events
         )
         events_component = max(-15, min(15, raw_events_total))
         happiness += events_component
 
-        # Age factor (±5 subtle modifier)
-        # Young: feel housing instability more sharply → amplify housing effect slightly
-        # Mid-life: balanced
-        # Later-life: financial security matters more → weight already captured above
+        # -- Age factor (+/-5 subtle modifier) --
         if 18 <= age <= 29:
-            # Youth: more affected by being stuck renting vs owning
+            # Young people feel housing instability more sharply
             age_component = -3 if housing_status == "renting" else +2
         elif 30 <= age <= 45:
-            # Mid-life: family stress if events include children — already in events
+            # Mid-life is balanced - family stress is handled via events
             age_component = 0
         else:
-            # Later life: financial security amplified slightly
+            # Later life - financial security matters more
             age_component = +3 if financial_security >= 60 else -3
         age_component = max(-5, min(5, age_component))
         happiness += age_component
 
-        # Clamp to [0, 100]
+        # Clamp the final score to [0, 100]
         final_score = max(0.0, min(100.0, happiness))
 
         return {
@@ -615,33 +503,58 @@ class HappinessEvaluator:
                 f"Base 50 | Housing {housing_component:+} | "
                 f"Financial {financial_component:+.1f} | "
                 f"Events {events_component:+} | "
-                f"Age {age_component:+} → {final_score:.1f}"
+                f"Age {age_component:+} -> {final_score:.1f}"
             )
         }
 
     def get_risk_tolerance(self, happiness_score):
         """
         Convert a happiness score into a risk tolerance multiplier.
-        Used to adjust mortgage decision thresholds - happier agents
-        are more willing to stretch their budget.
+        Happier agents are more willing to stretch their budget.
 
-        Args:
-            happiness_score (float): 0-100
-
-        Returns:
-            float: 0.5 (very conservative) → 1.5 (very confident)
-
-        Formula: smooth linear interpolation across the full range.
-            happiness 0   → 0.5  (will only take the safest option)
-            happiness 50  → 1.0  (standard behaviour)
-            happiness 100 → 1.5  (willing to stretch)
+        :param happiness_score: Happiness score from 0 to 100.
+        :return: Float from 0.5 (very conservative) to 1.5 (very confident).
         """
-        # Clamp input
+        # Clamp input to valid range
         score = max(0.0, min(100.0, happiness_score))
-        # Linear: 0.5 + (score / 100) * 1.0
+        # Linear interpolation: 0 -> 0.5, 50 -> 1.0, 100 -> 1.5
         return round(0.5 + (score / 100.0) * 1.0, 3)
 
+    def estimate_unknown_event(self, event_type, llm):
+        """
+        Ask the LLM to estimate the happiness impact of an unknown event.
+        Caches the result in EVENT_IMPACTS so it only needs to be estimated once.
 
+        :param event_type: The unknown event name.
+        :param llm: The ChatOllama LLM instance to ask.
+        :return: Estimated impact score (-20 to +20).
+        """
+        # If already estimated before, return the cached value
+        if event_type in self.EVENT_IMPACTS:
+            return self.EVENT_IMPACTS[event_type]
 
+        # Build a prompt asking the LLM to rate the event
+        prompt = (
+            f"A person has experienced: '{event_type}'. "
+            f"On a scale from -20 (devastating) to +20 (life-changing positive), "
+            f"how would this affect their overall happiness? "
+            f"For reference: marriage = +10, job_loss = -15, bereavement = -12. "
+            f"Reply with ONLY a single integer number, nothing else."
+        )
 
+        response = llm.invoke(prompt)
+
+        # Parse the number from the response
+        try:
+            score = int(response.content.strip())
+            # Clamp to valid range
+            score = max(-20, min(20, score))
+        except ValueError:
+            # If the LLM did not return a clean number, default to 0
+            score = 0
+
+        # Cache it so we do not ask again for the same event
+        self.EVENT_IMPACTS[event_type] = score
+
+        return score
 

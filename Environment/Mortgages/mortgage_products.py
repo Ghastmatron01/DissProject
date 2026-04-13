@@ -1,5 +1,5 @@
 MORTGAGE_PRODUCTS = {
-    # ===== NATIONWIDE =====
+    # ----- NATIONWIDE -----
     "FIXED_2_5.2": {
         "product_id": "FIXED_2_5.2",
         "name": "2-Year Fixed",
@@ -40,7 +40,7 @@ MORTGAGE_PRODUCTS = {
         "early_repay_charge": 0
     },
 
-    # ===== HSBC =====
+    # ----- HSBC -----
     "FIXED_2_5.4": {
         "product_id": "FIXED_2_5.4",
         "name": "2-Year Fixed",
@@ -81,7 +81,7 @@ MORTGAGE_PRODUCTS = {
         "early_repay_charge": 0
     },
 
-    # ===== BARCLAYS =====
+    # ----- BARCLAYS -----
     "FIXED_2_5.3": {
         "product_id": "FIXED_2_5.3",
         "name": "2-Year Fixed",
@@ -122,7 +122,7 @@ MORTGAGE_PRODUCTS = {
         "early_repay_charge": 0
     },
 
-    # ===== LLOYDS =====
+    # ----- LLOYDS -----
     "FIXED_2_5.25": {
         "product_id": "FIXED_2_5.25",
         "name": "2-Year Fixed",

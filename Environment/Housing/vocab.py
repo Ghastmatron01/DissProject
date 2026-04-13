@@ -1,8 +1,9 @@
 #vocab.py
 
 """
-Python file to store all the vocab for the HM Land Registery, to allow the users
-to be able to put a generalised prompt into AI, and we can extract the values
+Vocab lists for HM Land Registry data. Stores all UK counties, districts,
+regions, property types, and postcode areas so that natural language
+queries can be matched against known values.
 """
 
 

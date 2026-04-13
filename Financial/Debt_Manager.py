@@ -1,15 +1,23 @@
 # Class to help the user payoff their debts, grievances, and alimony
 class DebtManager:
     """
-    Handles the User defined debts
+    Handles user-defined debts. Supports adding debts, updating payments,
+    modelling payoff timelines, and calculating total monthly obligations.
     """
+
     def __init__(self):
+        """Initialise with an empty debts dictionary."""
         self.debts = {}
 
     def add_debt(self, name, balance, apr, min_payment, monthly_payment=None):
         """
         Add a debt to the system.
-        monthly_payment defaults to min_payment if not provided.
+
+        :param name: Name or label for the debt (e.g. "credit_card").
+        :param balance: Outstanding balance.
+        :param apr: Annual percentage rate (e.g. 0.19 for 19%).
+        :param min_payment: Minimum required monthly payment.
+        :param monthly_payment: Actual monthly payment (defaults to min_payment).
         """
         if monthly_payment is None:
             monthly_payment = min_payment
@@ -21,22 +29,31 @@ class DebtManager:
             "monthly_payment": monthly_payment
         }
 
-
     def update_payment(self, name, new_payment):
+        """
+        Update the monthly payment for an existing debt.
+
+        :param name: Name of the debt to update.
+        :param new_payment: The new monthly payment amount.
+        """
         self.debts[name]["monthly_payment"] = new_payment
 
-
     def monthly_interest_rate(self, apr):
-        return apr / 12
+        """
+        Convert an annual percentage rate to a monthly rate.
 
+        :param apr: Annual percentage rate.
+        :return: Monthly interest rate.
+        """
+        return apr / 12
 
     def model_payoff(self, name):
         """
-        Simulates the debt month-by-month until paid off.
-        Returns:
-            - months to payoff
-            - total interest paid
-            - optional: amortisation schedule (list of dicts with month, interest, payment, remaining balance)
+        Simulate the debt month-by-month until paid off.
+
+        :param name: Name of the debt to model.
+        :return: Dict with months to payoff, total interest paid,
+                 and an amortisation schedule.
         """
         debt = self.debts[name]
         balance = debt["balance"]
@@ -45,11 +62,10 @@ class DebtManager:
 
         months = 0
         total_interest = 0
-
-        # Optional: store amortisation schedule
         schedule = []
 
         while balance > 0:
+            # Calculate interest for this month
             interest = balance * monthly_rate
             total_interest += interest
             balance += interest
@@ -60,17 +76,18 @@ class DebtManager:
                     f"Payment for {name} is too low to cover interest. Increase payment."
                 )
 
+            # Apply payment and ensure balance does not go negative
             balance -= payment
             balance = max(balance, 0)
 
-        months += 1
+            months += 1
 
-        schedule.append({
-            "month": months,
-            "interest": interest,
-            "payment": payment,
-            "remaining_balance": balance
-        })
+            schedule.append({
+                "month": months,
+                "interest": interest,
+                "payment": payment,
+                "remaining_balance": balance
+            })
 
         return {
             "months": months,
@@ -78,13 +95,21 @@ class DebtManager:
             "schedule": schedule
         }
 
+    def total_monthly_payments(self):
+        """
+        Calculate the total monthly payments across all debts.
 
-def total_monthly_payments(self):
-    return sum(d["monthly_payment"] for d in self.debts.values())
+        :return: Sum of all monthly debt payments.
+        """
+        return sum(d["monthly_payment"] for d in self.debts.values())
 
+    def full_summary(self):
+        """
+        Run the payoff model for every debt and return a combined summary.
 
-def full_summary(self):
-    summary = {}
-    for name in self.debts:
-        summary[name] = self.model_payoff(name)
-    return summary
+        :return: Dict mapping each debt name to its payoff model result.
+        """
+        summary = {}
+        for name in self.debts:
+            summary[name] = self.model_payoff(name)
+        return summary

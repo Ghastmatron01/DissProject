@@ -6,37 +6,53 @@ import zipfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-# small helper function to robustly parse dates with multiple possible formats
+
 def _robust_parse_dates(series: pd.Series) -> pd.Series:
     """
-    Try several common formats first (fast exact parsing), then fall back to
-    pandas/dateutil flexible parsing. Returns a pd.Series of datetimes (NaT on failure).
+    Try several common date formats first (fast exact parsing), then
+    fall back to pandas/dateutil flexible parsing.
+
+    :param series: A pandas Series of date strings.
+    :return: A pandas Series of datetimes (NaT where parsing fails).
     """
     formats = ("%Y-%m-%d", "%Y-%m", "%Y %b", "%Y %B", "%Y")
-    # preserve original dtype/values by not coercing to str unless necessary
+
     for fmt in formats:
         parsed = pd.to_datetime(series, format=fmt, errors="coerce")
         if parsed.notna().any():
-            # keep parsed where possible, fallback to flexible parsing for the rest
+            # Keep parsed where possible, use flexible parsing for the rest
             return parsed.fillna(pd.to_datetime(series, errors="coerce"))
-    # final fallback: flexible parsing
+
+    # Final fallback: flexible parsing
     return pd.to_datetime(series, errors="coerce")
 
 
 class DataExtractor:
     """
     Utility class to load and clean datasets used by the simulator:
-    - laod_earnings_2025: cleaned ONS AWE dataset for 2025
-    - load_housing_data: cleaned housing price data
-    - load_ehs: cleaned English Housing Survey data
-    - load_land_registry: loads a cleaned time-series of prices
-    - load_income__after_tax_percentile: loads a cleaned percentile of wages
+      - load_earnings_2025: cleaned ONS AWE dataset for 2025
+      - load_housing_data: cleaned housing price data
+      - load_ehs: cleaned English Housing Survey data
+      - load_land_registry_prices: cleaned time-series of prices
+      - load_income_after_tax_percentiles: cleaned percentile wages
     """
 
     def __init__(self, seed: Optional[int] = None):
+        """
+        Initialise the extractor with an optional random seed.
+
+        :param seed: Optional seed for the random number generator.
+        """
         self.rng = np.random.default_rng(seed)
 
     def _read_file(self, file_path: str, sheet_name: Optional[int | str] = None) -> pd.DataFrame:
+        """
+        Read a file into a DataFrame based on its extension.
+
+        :param file_path: Path to the file.
+        :param sheet_name: Optional sheet name or index for Excel files.
+        :return: DataFrame with the file contents.
+        """
         ext = os.path.splitext(file_path)[1].lower()
         if ext in [".csv", ".txt"]:
             return pd.read_csv(file_path)
@@ -47,23 +63,30 @@ class DataExtractor:
 
     def load_earnings_2025(self, file_path):
         """
-        Loads the ONS AWE dataset from sheet '4. NSA sect monthly figs',
-        cleans the messy layout, maps CDID codes to readable sector names,
-        strips month labels, and returns only 2025 rows.
-        """
+        Load the ONS AWE dataset from sheet '4. NSA sect monthly figs',
+        clean the messy layout, map CDID codes to readable sector names,
+        strip month labels, and return only 2025 rows.
 
-        # 1. Load the raw sheet with NO headers
+        :param file_path: Path to the earnings .xls file.
+        :return: DataFrame with Month column and AWE columns for 2025.
+        """
+        # Load the raw sheet with no headers
         df_raw = pd.read_excel(file_path, sheet_name="4. NSA sect monthly figs", header=None)
-        # 2. Find the row where 'CDID' appears
+
+        # Find the row where 'CDID' appears
         cdid_row_idx = df_raw.index[df_raw.iloc[:, 0] == "CDID"][0]
-        # 3. Use the CDID row as header, and everything after as data
+
+        # Use the CDID row as header, and everything after as data
         df = df_raw.iloc[cdid_row_idx + 1:].copy()
         df.columns = df_raw.iloc[cdid_row_idx]
-        # 4. Drop rows that are completely empty
+
+        # Drop rows that are completely empty
         df = df.dropna(how="all")
-        # 5. Rename the first column to 'Month'
+
+        # Rename the first column to 'Month'
         df.rename(columns={df.columns[0]: "Month"}, inplace=True)
-        # 6. Clean the Month column (remove (p), (r), whitespace)
+
+        # Clean the Month column (remove provisional/revision markers)
         df["Month"] = (
             df["Month"]
             .astype(str)
@@ -71,7 +94,8 @@ class DataExtractor:
             .str.replace("(r)", "", regex=False)
             .str.strip()
         )
-        # 7. Map CDID codes → human-readable sector names
+
+        # Map CDID codes to human-readable sector names
         rename_map = {
             "KA46": "Whole Economy AWE",
             "KA47": "Whole Economy Bonuses",
@@ -94,34 +118,35 @@ class DataExtractor:
         }
 
         df = df.rename(columns=rename_map)
-        # 8. Keep only readable columns
+
+        # Keep only readable columns (drop 'Unnamed' leftovers)
         keep_cols = [col for col in df.columns if not str(col).startswith("Unnamed")]
         df = df[keep_cols]
-        # 9. Filter to only 2025 rows
+
+        # Filter to only 2025 rows
         df_2025 = df[df["Month"].str.startswith("2025")].copy()
-        # 10. Keep only Average Weekly Earnings (AWE)
+
+        # Keep only Average Weekly Earnings (AWE) columns
         awe_cols = ["Month"] + [col for col in df_2025.columns if col.endswith("AWE")]
         df_2025_awe = df_2025[awe_cols]
         return df_2025_awe
 
-    # python
-    # Replace the existing `load_housing_data` method and the `if __name__ == "__main__":` block
-    # in `Algorithms/Data_Extraction.py` with the code below.
-
     def load_housing_data(self, file_path):
         """
-        Loads housing price workbook (sheet index 4), strips column whitespace,
-        normalises the date column robustly, and returns a single-row dataframe
-        for the most recent time period.
+        Load a housing price workbook (sheet index 4), strip column
+        whitespace, normalise the date column, and return a single-row
+        DataFrame for the most recent time period.
+
+        :param file_path: Path to the Housing Prices Excel file.
+        :return: Single-row DataFrame with the most recent housing prices.
         """
         df = pd.read_excel(file_path, sheet_name=4, skiprows=2)
 
-        # strip whitespace from column names (fix trailing spaces like 'East ')
+        # Strip whitespace from column names (fix trailing spaces)
         df.columns = df.columns.str.strip()
-        # debug
         print("Columns in housing data:", df.columns.tolist())
 
-        # Identify time column (first column)
+        # Identify the time column (always the first column)
         time_period_col = df.columns[0]
 
         # Remove bracketed notes and whitespace from the time column
@@ -131,7 +156,7 @@ class DataExtractor:
             .str.strip()
         )
 
-        # Try a set of common formats first to avoid pandas' ambiguous inference warning
+        # Try a set of common formats before falling back to flexible parsing
         formats = ['%Y-%m-%d', '%Y-%m', '%b %Y', '%B %Y', '%Y/%m/%d', '%d/%m/%Y']
         parsed = pd.to_datetime(df[time_period_col], format=formats[0], errors='coerce')
 
@@ -141,12 +166,13 @@ class DataExtractor:
                 break
             parsed.loc[mask] = pd.to_datetime(df.loc[mask, time_period_col], format=fmt, errors='coerce')
 
-        # final fallback to pandas inference (keeps old behaviour if none of the formats matched)
+        # Final fallback to flexible inference
         parsed = parsed.fillna(_robust_parse_dates(df[time_period_col]))
 
-        # store as datetime (or .dt.date if you prefer date objects)
+        # Store as date objects
         df[time_period_col] = parsed.dt.date
 
+        # Grab the most recent row
         most_recent_row = df.iloc[-1]
         most_recent_date = most_recent_row[time_period_col]
         print("Most recent date in housing data:", most_recent_date)
@@ -157,34 +183,35 @@ class DataExtractor:
 
         return housing_prices_df
 
-
     def load_ehs(self, file_path: str, usecols: Optional[List[str]] = None,
                  sheet_name: Optional[str] = None) -> pd.DataFrame:
         """
-        Loads English Housing Survey (CSV or Excel). Tries to detect common columns:
-        - 'dwelling_age' or 'AGE' / 'age_band'
-        - 'damp' / 'presence_of_damp' / 'damp_or_mould'
-        - 'pests' / 'rats' / 'vermin'
-        - 'tenure' / 'owner_tenure'
-        If `usecols` provided, these are used to subset the file.
-        Returns cleaned DataFrame with standardized column names where possible.
+        Load English Housing Survey data (CSV or Excel). Attempts to detect
+        common column names and standardise them.
+
+        :param file_path: Path to the EHS data file.
+        :param usecols: Optional list of columns to keep.
+        :param sheet_name: Optional sheet name for Excel files.
+        :return: Cleaned DataFrame with standardised column names.
         """
         df = self._read_file(file_path, sheet_name=sheet_name)
-        # Optional subset
+
+        # Optionally subset columns
         if usecols:
             df = df[[c for c in usecols if c in df.columns]]
 
-        # Lowercase columns for matching
+        # Build a lowercase lookup so we can match columns case-insensitively
         col_map: Dict[str, str] = {}
         lowercols = {c.lower(): c for c in df.columns}
 
         def find_any(keys: List[str]) -> Optional[str]:
+            """Return the first matching column name from a list of candidates."""
             for k in keys:
                 if k in lowercols:
                     return lowercols[k]
             return None
 
-
+        # Map known aliases to standardised names
         mappings = {
             "age": ["dwelling_age", "age", "age_band", "yr_built", "year_built"],
             "damp": ["damp", "presence_of_damp", "damp_or_mould", "mould"],
@@ -198,11 +225,11 @@ class DataExtractor:
             if found:
                 col_map[found] = std
 
-        # rename matched columns
+        # Rename matched columns to standardised names
         if col_map:
             df = df.rename(columns=col_map)
 
-         # Basic cleaning: ensure numeric age, booleans for damp/rats where possible
+        # Basic cleaning: ensure numeric age, booleans for damp/rats
         if "age" in df.columns:
             df["age"] = pd.to_numeric(df["age"], errors="coerce")
         if "damp" in df.columns:
@@ -216,25 +243,30 @@ class DataExtractor:
 
     def load_land_registry_prices(self, file_path: str, date_col: str = "Date", price_col: Optional[str] = None) -> pd.DataFrame:
         """
-        Loads Land Registry / price time series data.
-        Expects a table with a date column and either a single price column or multiple columns (regions).
-        Returns a tidy DataFrame with columns [date, region?, price].
+        Load Land Registry / price time series data. Returns a tidy
+        DataFrame with columns [date, region, price].
+
+        :param file_path: Path to the price data file.
+        :param date_col: Name of the date column.
+        :param price_col: Optional single price column to extract.
+        :return: Tidy DataFrame with date, region (if multiple), and price.
         """
         df = self._read_file(file_path)
-        # try to find date column automatically if not provided
+
+        # Try to find the date column automatically if not present
         if date_col not in df.columns:
-            # choose first datetime-like column
             for c in df.columns:
                 if pd.api.types.is_datetime64_any_dtype(df[c]) or df[c].astype(str).str.match(r"\d{4}-\d{2}").any():
                     date_col = c
                     break
 
         df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
-        # If price_col provided, return subset
+
+        # If a specific price column was requested, return just that
         if price_col and price_col in df.columns:
             return df[[date_col, price_col]].rename(columns={date_col: "date", price_col: "price"}).dropna().reset_index(drop=True)
 
-        # Otherwise, melt all non-date columns
+        # Otherwise melt all non-date columns into long format
         value_cols = [c for c in df.columns if c != date_col]
         tidy = df.melt(id_vars=[date_col], value_vars=value_cols, var_name="region", value_name="price")
         tidy = tidy.dropna(subset=["price"])
@@ -243,32 +275,18 @@ class DataExtractor:
 
     def load_income_after_tax_percentiles(self, file_path: str, tax_year: str = "2022 to 2023") -> Dict[int, float]:
         """
-        Extracts income-after-tax percentile points from the HMRC Table 3.1a xlsx file.
+        Extract income-after-tax percentile points from the HMRC
+        Table 3.1a xlsx file by parsing the raw XML inside the zip.
 
-        This file uses a non-standard OOXML namespace (purl.oclc.org) which causes
-        openpyxl and pandas to report 0 sheets. We bypass this by reading the xlsx
-        zip archive and parsing the XML directly.
-
-        The target sheet ('Table_3.1a_2223') has the layout:
-            - Rows 1–4:  Title and notes (skipped)
-            - Row 5:     Column headers — "Percentile point ...", "1999 to 2000", ..., "2022 to 2023"
-            - Rows 6–104: One row per percentile (1–99)
-            - Row 105:   "End of worksheet" (skipped)
-
-        Args:
-            file_path (str): Path to Table_3.1a_2223.xlsx
-            tax_year (str): The column header to extract, e.g. "2022 to 2023"
-
-        Returns:
-            dict mapping percentile (int) → annual income after tax (float), e.g.
-            {1: 12800.0, 2: 13100.0, ..., 99: 132000.0}
-            Percentiles with "[Not available]" are omitted.
+        :param file_path: Path to Table_3.1a_2223.xlsx.
+        :param tax_year: The column header to extract, e.g. "2022 to 2023".
+        :return: Dict mapping percentile (int) to annual income after tax (float).
         """
         NS = "http://purl.oclc.org/ooxml/spreadsheetml/main"
 
-        # ── helpers ──────────────────────────────────────────────────────────
+        # -- Helper functions --
         def col_letter_to_index(col_str: str) -> int:
-            """Convert Excel column letter(s) to 0-based index. e.g. 'A'→0, 'Z'→25, 'AA'→26"""
+            """Convert Excel column letter(s) to 0-based index (e.g. 'A' -> 0)."""
             index = 0
             for char in col_str.upper():
                 index = index * 26 + (ord(char) - ord("A") + 1)
@@ -279,12 +297,12 @@ class DataExtractor:
             letters = "".join(ch for ch in ref if ch.isalpha())
             return col_letter_to_index(letters)
 
-        # read raw XML from the zip
+        # Read raw XML from the zip archive
         with zipfile.ZipFile(file_path) as z:
             shared_raw = z.read("xl/sharedStrings.xml").decode("utf-8")
             sheet_raw = z.read("xl/worksheets/sheet3.xml").decode("utf-8")
 
-        # build shared strings lookup
+        # Build shared strings lookup
         sst = ET.fromstring(shared_raw)
         strings: List[str] = [
             "".join(t.text or "" for t in si.iter(f"{{{NS}}}t"))
@@ -300,7 +318,7 @@ class DataExtractor:
                 return strings[int(raw)]
             return raw                    # numeric or inline string
 
-        # parse all rows into a list-of-dicts {col_index: value}
+        # Parse all rows into a list of dicts {col_index: value}
         root = ET.fromstring(sheet_raw)
         parsed_rows: List[Dict[int, str]] = []
 
@@ -312,8 +330,7 @@ class DataExtractor:
                 row_dict[col_idx] = resolve_cell(c)
             parsed_rows.append(row_dict)
 
-        # locate the header row: find row where a cell is exactly "YYYY to YYYY"
-        # (avoids matching the title row where year ranges appear inside a sentence)
+        # Locate the header row by finding a cell that exactly matches "YYYY to YYYY"
         import re
         year_range_pattern = re.compile(r"^\d{4} to \d{4}$")
         header_row_idx = None
@@ -330,7 +347,7 @@ class DataExtractor:
 
         header = parsed_rows[header_row_idx]
 
-        # find which column index holds the requested tax year
+        # Find which column index holds the requested tax year
         target_col = None
         for col_idx, val in header.items():
             if tax_year.lower() in val.lower():
@@ -344,7 +361,7 @@ class DataExtractor:
                 f"Available years: {available}"
             )
 
-        # extract percentile → income pairs from data rows
+        # Extract percentile to income pairs from data rows
         percentile_col = min(header.keys())   # leftmost column = percentile number
         result: Dict[int, float] = {}
 
@@ -367,6 +384,13 @@ class DataExtractor:
 
     @staticmethod
     def _to_bool(val) -> Optional[bool]:
+        """
+        Convert a value to a boolean. Handles strings like 'yes'/'no',
+        numeric values, and numpy booleans.
+
+        :param val: The value to convert.
+        :return: True, False, or None if the value cannot be converted.
+        """
         if pd.isna(val):
             return None
         if isinstance(val, (bool, np.bool_)):
@@ -376,29 +400,32 @@ class DataExtractor:
             return True
         if s in {"no", "n", "false", "0", "f"}:
             return False
-        # numeric heuristics
+        # Numeric heuristic: positive = True
         try:
             n = float(s)
             return n > 0
         except Exception:
             return None
 
-
     def clean_and_melt_housing(self, df, time_col='Time period'):
         """
-        - Strip whitespace from column names
-        - Parse `time_col` robustly (try '%Y-%m-%d' first, then fall back to infer)
-        - Melt wide dataframe to long form with columns: Time period, Region, Price
+        Strip whitespace from column names, parse the time column
+        robustly, and melt the wide DataFrame to long form.
+
+        :param df: Wide-format housing DataFrame.
+        :param time_col: Name of the time period column.
+        :return: Long-form DataFrame with columns: Time period, Region, Price.
         """
-        #work on a copy of the dataframe to avoid modifying the original
+        # Work on a copy to avoid modifying the original
         df = df.copy()
-        # strip whitespace from column names
+
+        # Strip whitespace from column names
         df.columns = df.columns.str.strip()
 
         if time_col not in df.columns:
             raise KeyError(f"Missing column: `{time_col}`")
 
-        # Try a set of common format first, then fall back to infer_datetime_format
+        # Try common formats first, then fall back to flexible inference
         formats = ['%Y-%m-%d', '%Y-%m', '%b %Y', '%B %Y', '%Y/%m/%d', '%d/%m/%Y']
         parsed = pd.to_datetime(df[time_col], format='%Y-%m-%d', errors='coerce')
 
@@ -408,30 +435,31 @@ class DataExtractor:
             mask = parsed.isna()
             parsed.loc[mask] = pd.to_datetime(df.loc[mask, time_col], format=fmt, errors='coerce')
 
-        #final fallback to pandas inference
+        # Final fallback to pandas inference
         parsed = parsed.fillna(_robust_parse_dates(df[time_col]))
         df[time_col] = parsed
 
-        #show most recent date for sanity check
+        # Show most recent date for sanity check
         most_recent = df[time_col].max()
         print("Most recent date in housing data:", most_recent)
 
-        #melt wide format to long form
+        # Melt wide format to long form
         long = df.melt(id_vars=[time_col], var_name='Region', value_name='Price')
         long = long.dropna(subset=['Price']).reset_index(drop=True)
 
         return long
 
 
-# python
-# ---- main guard: ensure output directory exists before saving ----
+# --------------------------------------------------------------------
+#  Main guard: run extraction when executed directly
+# --------------------------------------------------------------------
 if __name__ == "__main__":
     extractor = DataExtractor(seed=42)
 
     data_dir = Path(__file__).parent.parent / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
 
-    # earnings
+    # -- Earnings --
     file_path = data_dir / "earn02nov2025 (1).xls"
     try:
         earnings = extractor.load_earnings_2025(str(file_path))
@@ -440,25 +468,17 @@ if __name__ == "__main__":
     except Exception as e:
         print("Failed to load earnings:", e)
 
-        # housing
+        # -- Housing --
         housing_file_path = data_dir / "Housing Prices.xlsx"
         try:
             housing = extractor.load_housing_data(str(housing_file_path))
             print(housing.head())
-            # optional: convert to long form and save
             try:
                 housing_long = extractor.clean_and_melt_housing(housing, time_col=housing.columns[0])
                 housing_long.to_csv(data_dir / "housing_long.csv", index=False)
                 print("Housing long shape:", housing_long.shape)
             except Exception:
-                # if cleaning/melting fails, still save the single-row wide snapshot
+                # If cleaning/melting fails, still save the single-row wide snapshot
                 housing.to_csv(data_dir / "housing_latest_row.csv", index=False)
         except Exception as e:
             print("Failed to load housing data:", e)
-
-# Example usage (not executed in library import):
-# extractor = DataExtractor(seed=42)
-# awe_2025 = extractor.load_earnings_2025(r`data/earn02nov2025 (1).xls`)
-# housing_latest = extractor.load_housing_data(r`data/Housing Prices.xlsx`)
-# ehs = extractor.load_ehs(r`data/ehs_sample.csv`)
-# lr = extractor.load_land_registry_prices(r`data/land_registry_prices.csv`)

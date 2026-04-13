@@ -2,73 +2,90 @@
 # Class will be for modelling faults in the houses, such as damp, structural damage, etc
 
 class Fault_Modelling:
-    def __init__(self, house): # house will be object from housing class
+    """
+    Model faults in houses such as damp, structural damage, boiler
+    failure, etc. Uses base probabilities adjusted by house attributes.
+    Probabilities and weights are placeholders until real EHS data is
+    integrated.
+    """
+
+    def __init__(self, house):
+        """
+        Initialise the fault model from a house object.
+
+        :param house: House object with age, maintenance_history, location,
+                      materials, and occupancy attributes.
+        """
         self.house = house
         self.age = house.age
         self.maintenance_history = house.maintenance_history
         self.location = house.location
         self.materials = house.materials
         self.occupancy = house.occupancy
-        #placeholder faults and values for the sake of programming the model, these will be based on real data in the future
+
+        # Placeholder faults and values - will be calibrated from real EHS data
         self.faults = {
             "damp": {
-                "base_probability": 0.05, #placeholder value
+                "base_probability": 0.05,
                 "factors": ["age", "wall_type", "ventilation", "climate"]
             },
             "boiler_failure": {
-                "base_probability": 0.03, #placeholder value
+                "base_probability": 0.03,
                 "factors": ["age", "maintenance_history", "usage"]
             },
             "structural_damage": {
-                "base_probability": 0.02, #placeholder value
+                "base_probability": 0.02,
                 "factors": ["age", "materials", "occupancy"]
             },
             "electrical_fault": {
-                "base_probability": 0.04, #placeholder value
+                "base_probability": 0.04,
                 "factors": ["age", "maintenance_history", "usage"]
             },
             "plumbing_issue": {
-                "base_probability": 0.03, #placeholder value
+                "base_probability": 0.03,
                 "factors": ["age", "maintenance_history", "usage"]
             },
             "roof_leak": {
-                "base_probability": 0.02, #placeholder value
+                "base_probability": 0.02,
                 "factors": ["age", "materials", "climate"]
             },
             "foundation_issue": {
-                "base_probability": 0.01, #placeholder value
+                "base_probability": 0.01,
                 "factors": ["age", "materials", "occupancy"]
             },
         }
 
     def calculate_fault_probability(self, fault):
-        '''
-        Calculates the probability of a specific fault occurring based on the house's attributes and the fault's factors.
-        Will be using data from the EHS to determine the weights for each factor
-        Need to do research into how variables effect each fault, like age, boiler age, ect
-        :param fault:
-        :return: probability of the fault occurring
-        '''
+        """
+        Calculate the probability of a specific fault occurring based
+        on the house's attributes and the fault's contributing factors.
+        Weights are placeholders until real EHS research is complete.
+
+        :param fault: Name of the fault (e.g. "damp", "boiler_failure").
+        :return: Probability of the fault occurring (float).
+        """
         if fault not in self.faults:
             raise ValueError(f"Fault '{fault}' not recognized.")
 
         fault_info = self.faults[fault]
         probability = fault_info["base_probability"]
+
         for factor in fault_info["factors"]:
             if factor == "age":
-                probability += self.age * 0.001 #placeholder weight
+                # Older houses are more prone to faults
+                probability += self.age * 0.001
             elif factor == "maintenance_history":
-                probability -= self.maintenance_history * 0.002 #placeholder weight
+                # Better maintenance reduces probability
+                probability -= self.maintenance_history * 0.002
             elif factor == "materials":
+                # Brick is more resilient than wood
                 if self.materials == "brick":
-                    probability -= 0.01 #placeholder value
+                    probability -= 0.01
                 elif self.materials == "wood":
-                    probability += 0.01 #placeholder value
+                    probability += 0.01
             elif factor == "occupancy":
+                # Higher occupancy increases wear and tear
                 if self.occupancy > 4:
-                    probability += 0.01 #placeholder value
-            # Add more factors and their effects as needed
+                    probability += 0.01
 
-
-
-
+        return probability
