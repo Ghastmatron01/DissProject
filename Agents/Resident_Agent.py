@@ -12,6 +12,8 @@ from Algorithms.ResidentAlgorithms import (
 )
 from Agents.agent_tools import build_agent_tools
 from Agents.agent_prompts import RESIDENT_SYSTEM_PROMPT, HOMEOWNER_PROMPT
+from Algorithms.Fault_Modelling import FaultModelling
+from data.postcode_lookup import PostcodeLookup
 
 
 class ResidentAgent:
@@ -752,7 +754,7 @@ class ResidentAgent:
                     decision = vd
                     break
 
-        # ── Deterministic fallback ──
+        # -- Deterministic fallback --
         # If the LLM still didn't produce a recognised keyword, use a
         # rule-based heuristic so agents are not stuck on WAIT forever.
         if decision not in valid_decisions:
@@ -1082,8 +1084,11 @@ class ResidentAgent:
                         self.first_time_buyer = False  # No longer a first-time buyer
                         self._apply_homeowner_expenses(best_mortgage["property_price"])
                         self.life_events.append("bought_home")
-                    else:
-                        decision = "SAVE_FOR_DEPOSIT"
+
+                        # Initialize fault modelling for the property
+                        lookup = PostcodeLookup()
+                        lsoa = lookup.get_lsoa(self.current_property.postcode)
+                        self.current_property.fault_model = FaultModelling(self.current_property, lsoa)
             else:
                 decision_result = self._make_homeowner_decision()
                 decision = decision_result["decision"]
@@ -1261,6 +1266,14 @@ class ResidentAgent:
                 # Apply property value growth (regional rate)
                 growth_rate = self._get_property_growth_rate()
                 self.active_mortgage["property_price"] *= (1 + growth_rate)
+
+                # Assess property faults for homeowners
+                if self.mortgage_status == "active_mortgage" and hasattr(self.current_property, 'fault_model'):
+                    new_faults = self.current_property.fault_model.assess_annual_faults(self.simulation_year)
+                    total_repair_cost = sum(f['repair_cost'] for f in new_faults)
+                    if total_repair_cost > 0:
+                        self.financial_state["savings"] -= total_repair_cost
+                        triggered_events.append(f"property_repairs:£{total_repair_cost:,.0f}")
 
                 if decision == "OVERPAY_MORTGAGE":
                     # Put 50% of available savings towards overpayment

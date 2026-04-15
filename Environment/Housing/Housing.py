@@ -9,6 +9,7 @@ from Environment.Housing.vocab import (
     UK_PROPERTY_TYPES, UK_POSTCODE_AREAS
 )
 from Environment.Housing.fuzzy_utils import fuzzy_match
+from Algorithms.Fault_Modelling import FaultModelling
 
 
 class House:
