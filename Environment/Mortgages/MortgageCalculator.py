@@ -17,7 +17,7 @@ class MortgageCalculator:
         self.property_price = property_price
         self.deposit_amount = deposit_amount
         self.principal = property_price - deposit_amount  # Amount to borrow
-        self.term_years = term_years or mortgage_product.term
+        self.term_years = term_years or mortgage_product.term or 25  # Default 25 for variable products
 
     # --------------------------------------------------------------------
     #  Payment Calculations
@@ -113,23 +113,24 @@ class MortgageCalculator:
                 f"(maximum allowed for £{annual_gross_income:,.0f} salary: £{max_borrow_by_income:,.0f})"
             )
 
-        # -- Affordability check (total debt <= 50% of monthly income) --
-        net_monthly_income = annual_gross_income / 12
+        # -- Affordability check (total debt <= 50% of estimated net monthly income) --
+        # Estimate net income as ~70% of gross (rough UK average after tax/NI)
+        estimated_net_monthly = (annual_gross_income * 0.70) / 12
         monthly_mortgage = self.calculate_monthly_payment()
         total_monthly_debt = monthly_mortgage + existing_monthly_debts
-        affordability_ratio = total_monthly_debt / net_monthly_income
+        affordability_ratio = total_monthly_debt / estimated_net_monthly if estimated_net_monthly > 0 else 1.0
 
         if affordability_ratio > 0.50:
             reasons.append(
                 f"Affordability concern: Monthly payments (£{total_monthly_debt:.2f}) "
-                f"exceed 50% of net income (50% = £{net_monthly_income*0.50:.2f})"
+                f"exceed 50% of estimated net income (50% = £{estimated_net_monthly*0.50:.2f})"
             )
 
         # -- Final decision --
         if reasons:
             return False, " | ".join(reasons), 0
         else:
-            available_after_debt = net_monthly_income - total_monthly_debt
+            available_after_debt = estimated_net_monthly - total_monthly_debt
             return True, "Approved", available_after_debt
 
     def calculate_affordability(self, net_monthly_income, existing_debts, monthly_expenses, mortgage_payment):

@@ -103,6 +103,48 @@ class DebtManager:
         """
         return sum(d["monthly_payment"] for d in self.debts.values())
 
+    def accrue_monthly(self):
+        """
+        Apply one month of interest and payments to every debt.
+        Debts whose balance reaches zero are marked as paid off.
+
+        :return: Dict mapping debt name to a dict with 'interest',
+                 'payment', 'new_balance', and 'paid_off'.
+        """
+        results = {}
+        paid_off = []
+        for name, debt in self.debts.items():
+            monthly_rate = self.monthly_interest_rate(debt["apr"])
+            interest = debt["balance"] * monthly_rate
+            debt["balance"] += interest
+            debt["balance"] -= debt["monthly_payment"]
+            if debt["balance"] <= 0:
+                debt["balance"] = 0
+                paid_off.append(name)
+            results[name] = {
+                "interest": round(interest, 2),
+                "payment": debt["monthly_payment"],
+                "new_balance": round(debt["balance"], 2),
+                "paid_off": debt["balance"] <= 0,
+            }
+        # Remove debts that hit zero
+        for name in paid_off:
+            del self.debts[name]
+        return results
+
+    def accrue_annual(self):
+        """
+        Apply 12 months of interest and payments to every debt in one go.
+
+        :return: Dict mapping debt name to final results.
+        """
+        combined = {}
+        for _ in range(12):
+            monthly = self.accrue_monthly()
+            for name, data in monthly.items():
+                combined[name] = data
+        return combined
+
     def full_summary(self):
         """
         Run the payoff model for every debt and return a combined summary.

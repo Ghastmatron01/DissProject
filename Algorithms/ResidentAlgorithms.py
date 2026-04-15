@@ -102,6 +102,14 @@ class HousingPreferenceEvaluator:
         max_price = agent_income * 4.5
         min_price = agent_income * 2.0  # ignore properties that are too cheap
 
+        # Map preferred location to likely counties for search filtering
+        location_to_counties = {
+            "city": ["GREATER LONDON", "GREATER MANCHESTER", "WEST MIDLANDS", "WEST YORKSHIRE"],
+            "suburban": ["SURREY", "KENT", "ESSEX", "HERTFORDSHIRE", "BUCKINGHAMSHIRE"],
+            "countryside": ["CORNWALL", "DEVON", "SOMERSET", "NORFOLK", "SUFFOLK"],
+        }
+        counties = location_to_counties.get(location, None)
+
         return {
             "preferred_location": location,
             "preferred_property_types": property_types,
@@ -109,6 +117,7 @@ class HousingPreferenceEvaluator:
             "max_bedrooms": max_bed,
             "min_price": min_price,
             "max_price": max_price,
+            "counties": counties,
             "weights": {
                 "price": 0.4,
                 "location": 0.3,
@@ -117,17 +126,23 @@ class HousingPreferenceEvaluator:
             }
         }
 
-    def income_percentile(self, income):
+    def income_percentile(self, gross_income):
         """
         Determine the income bracket by comparing the agent's income
-        against national percentile thresholds.
+        against national after-tax percentile thresholds.
 
-        :param income: The income of the user after tax.
+        The percentile data is after-tax, so we convert the gross income
+        to an approximate net figure first (~70% of gross for UK average).
+
+        :param gross_income: The gross annual income of the agent.
         :return: "low", "mid", or "high".
         """
+        # Approximate net income for comparison (UK average ~70% of gross)
+        net_income = gross_income * 0.70
+
         # Iterate in sorted order (1 to 99) so the first match is the correct bracket
         for percentile in sorted(self.income_percentiles.keys()):
-            if income <= self.income_percentiles[percentile]:
+            if net_income <= self.income_percentiles[percentile]:
                 # Found the first percentile whose threshold is >= the agent's income
                 if percentile <= 25:
                     return "low"
@@ -214,15 +229,18 @@ class HousingPreferenceEvaluator:
         :param district: District name from the property record.
         :return: "city", "suburban", "countryside", or "unknown".
         """
-        city_areas = ["Greater London", "Manchester", "Birmingham", "Leeds"]
-        suburban_areas = ["Surrey", "Kent", "Essex", "Hertfordshire"]
-        countryside_areas = ["Cornwall", "Devon", "Lake District", "Yorkshire Dales"]
+        city_areas = ["GREATER LONDON", "GREATER MANCHESTER", "WEST MIDLANDS", "WEST YORKSHIRE"]
+        suburban_areas = ["SURREY", "KENT", "ESSEX", "HERTFORDSHIRE"]
+        countryside_areas = ["CORNWALL", "DEVON", "LAKE DISTRICT", "YORKSHIRE DALES"]
 
-        if county in city_areas or district in city_areas:
+        county_upper = county.upper() if county else ""
+        district_upper = district.upper() if district else ""
+
+        if county_upper in city_areas or district_upper in city_areas:
             return "city"
-        elif county in suburban_areas or district in suburban_areas:
+        elif county_upper in suburban_areas or district_upper in suburban_areas:
             return "suburban"
-        elif county in countryside_areas or district in countryside_areas:
+        elif county_upper in countryside_areas or district_upper in countryside_areas:
             return "countryside"
         else:
             return "unknown"
@@ -267,7 +285,8 @@ class FinancialAffordabilityEvaluator:
         pass
 
     def check_lending_criteria(self, agent_age, agent_income, deposit,
-                               property_price, mortgage_product, mortgage_term=25):
+                               property_price, mortgage_product, mortgage_term=25,
+                               existing_debts=0):
         """
         Check whether the agent meets a bank's lending criteria for a
         specific mortgage product. Combines MortgageCalculator's built-in
@@ -279,6 +298,7 @@ class FinancialAffordabilityEvaluator:
         :param property_price: Price of the property.
         :param mortgage_product: MortgageProduct object from Environment.Mortgages.
         :param mortgage_term: Repayment term in years (default 25).
+        :param existing_debts: Existing debts amount (default 0).
         :return: Dict with passes, ltv, loan_amount, monthly_payment,
                  age_at_end, failed_checks, and flags.
         """
@@ -309,7 +329,7 @@ class FinancialAffordabilityEvaluator:
 
         approved, reason, available_after = calculator.check_lending_criteria(
             annual_gross_income=agent_income,
-            existing_monthly_debts=0   # Existing debts not tracked yet - defaulting to 0
+            existing_monthly_debts=existing_debts   # Existing debts now tracked
         )
 
         if not approved:

@@ -2,9 +2,9 @@
 Bank class - loads branch data and manages branches through BranchManager.
 When created, it automatically populates itself with branches from branch_data.py.
 """
-from BankBranches.BranchManager import BranchManager
-from BankBranches.Branch import Branch
-from BankBranches.branch_data import BANK_BRANCHES
+from Environment.BankBranches.BranchManager import BranchManager
+from Environment.BankBranches.Branch import Branch
+from Environment.BankBranches.branch_data import BANK_BRANCHES
 
 
 class Bank:

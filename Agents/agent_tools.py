@@ -161,7 +161,8 @@ def build_agent_tools(agent):
                 agent_income=agent.gross_salary,
                 deposit=deposit,
                 property_price=property_price,
-                mortgage_product=product
+                mortgage_product=product,
+                existing_debts = agent.debt_manager.total_monthly_payments()
             )
 
             # Format the result line for the LLM
