@@ -490,6 +490,7 @@ class SalaryCalculator:
 
         return allowance
 
+
     # --------------------------------------------------------------------
     #  FULL BREAKDOWN
     # --------------------------------------------------------------------
@@ -502,8 +503,8 @@ class SalaryCalculator:
         :return: Dict with each deduction type and the total.
         """
         tax = sum(self.calculate_tax().values())
-        employee_ni = sum(self.calculate_employee_ni().values())
-        student_loan = self.calculate_student_loan()["total"]
+        employee_ni = sum(self.calculate_employee_ni().values()) * 52   # Weekly → annual
+        student_loan = self.calculate_student_loan()["total"] * 52     # Weekly → annual
         employee_pension = self.calculate_employee_pension()
         child_benefit_charge = self.calculate_child_benefit_charge()["charge"]
 
@@ -560,3 +561,64 @@ class SalaryCalculator:
             "child_benefit_charge": self.calculate_child_benefit_charge(),
             "net_pay": self.calculate_net_pay()
         }
+
+
+# --------------------------------------------------------------------
+#  SDLT (STAMP DUTY LAND TAX) - Standalone function
+# --------------------------------------------------------------------
+
+def calculate_sdlt(property_price, first_time_buyer=True):
+    """
+    Calculate the Stamp Duty Land Tax (SDLT) for a UK property purchase.
+    This is a standalone function - not tied to a salary.
+
+    :param property_price: The price of the property being purchased.
+    :param first_time_buyer: True if the buyer is a first-time buyer.
+    :return: Dict with total_sdlt and a breakdown of each SDLT band.
+    """
+    if first_time_buyer:
+        # First-time buyer relief: 0% up to 425k, 5% on 425k-625k.
+        # No relief if price exceeds 625k (standard rates apply instead).
+        if property_price <= 625_000:
+            bands = [
+                ("0% (FTB relief)", 425_000, 0.00),
+                ("5%",              625_000, 0.05),
+            ]
+        else:
+            # Over 625k — no FTB relief, fall through to standard rates
+            first_time_buyer = False
+
+    if not first_time_buyer:
+        # Standard SDLT rates
+        bands = [
+            ("0%",  250_000,   0.00),
+            ("5%",  925_000,   0.05),
+            ("10%", 1_500_000, 0.10),
+            ("12%", None,      0.12),
+        ]
+
+    breakdown = []
+    remaining = property_price
+    previous_upper = 0
+    total = 0
+
+    for name, upper, rate in bands:
+        if upper is None:
+            taxable = remaining
+        else:
+            band_width = upper - previous_upper
+            taxable = min(remaining, band_width)
+
+        tax = taxable * rate
+        total += tax
+        breakdown.append({"band": name, "taxable": taxable, "tax": round(tax, 2)})
+
+        remaining -= taxable
+        previous_upper = upper if upper else previous_upper
+
+        if remaining <= 0:
+            break
+
+    # Return OUTSIDE the loop so all bands are processed
+    return {"total_sdlt": round(total, 2), "breakdown": breakdown}
+

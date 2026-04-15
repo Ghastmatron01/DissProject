@@ -36,7 +36,6 @@ class ExpenseManager:
                 f"Invalid Category: {category}. "
                 f"Must be one of: {self.DEFAULT_CATEGORIES}"
             )
-            self.categories[category] = {}
 
         if frequency not in ["daily", "weekly", "monthly", "annual"]:
             raise ValueError("Invalid frequency")

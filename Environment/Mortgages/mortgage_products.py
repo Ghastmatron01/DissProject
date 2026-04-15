@@ -1,5 +1,18 @@
 MORTGAGE_PRODUCTS = {
     # ----- NATIONWIDE -----
+    "FTB_2_5.8": {
+        "product_id": "FTB_2_5.8",
+        "name": "First-Time Buyer 2-Year Fixed (95% LTV)",
+        "bank": "Nationwide",
+        "type": "fixed",
+        "rate": 5.8,
+        "term": 2,
+        "min_deposit": 0.05,
+        "max_ltv": 0.95,
+        "arrangement_fee": 0,
+        "valuation_fee": 0,
+        "early_repay_charge": 0
+    },
     "FIXED_2_5.2": {
         "product_id": "FIXED_2_5.2",
         "name": "2-Year Fixed",
@@ -41,6 +54,19 @@ MORTGAGE_PRODUCTS = {
     },
 
     # ----- HSBC -----
+    "FTB_2_5.9": {
+        "product_id": "FTB_2_5.9",
+        "name": "First-Time Buyer 2-Year Fixed (90% LTV)",
+        "bank": "HSBC",
+        "type": "fixed",
+        "rate": 5.9,
+        "term": 2,
+        "min_deposit": 0.10,
+        "max_ltv": 0.90,
+        "arrangement_fee": 0,
+        "valuation_fee": 0,
+        "early_repay_charge": 0
+    },
     "FIXED_2_5.4": {
         "product_id": "FIXED_2_5.4",
         "name": "2-Year Fixed",
@@ -82,6 +108,19 @@ MORTGAGE_PRODUCTS = {
     },
 
     # ----- BARCLAYS -----
+    "FTB_2_5.75": {
+        "product_id": "FTB_2_5.75",
+        "name": "First-Time Buyer 2-Year Fixed (95% LTV)",
+        "bank": "Barclays",
+        "type": "fixed",
+        "rate": 5.75,
+        "term": 2,
+        "min_deposit": 0.05,
+        "max_ltv": 0.95,
+        "arrangement_fee": 0,
+        "valuation_fee": 0,
+        "early_repay_charge": 0
+    },
     "FIXED_2_5.3": {
         "product_id": "FIXED_2_5.3",
         "name": "2-Year Fixed",
@@ -123,6 +162,19 @@ MORTGAGE_PRODUCTS = {
     },
 
     # ----- LLOYDS -----
+    "FTB_2_5.85": {
+        "product_id": "FTB_2_5.85",
+        "name": "First-Time Buyer 2-Year Fixed (90% LTV)",
+        "bank": "Lloyds",
+        "type": "fixed",
+        "rate": 5.85,
+        "term": 2,
+        "min_deposit": 0.10,
+        "max_ltv": 0.90,
+        "arrangement_fee": 0,
+        "valuation_fee": 0,
+        "early_repay_charge": 0
+    },
     "FIXED_2_5.25": {
         "product_id": "FIXED_2_5.25",
         "name": "2-Year Fixed",
