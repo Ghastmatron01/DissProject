@@ -9,6 +9,10 @@ Creates the A2 portrait academic poster (PDF) for the dissertation:
 
   University of Reading · Department of Computer Science · 2024/25
 
+Visual style: matches the official University of Reading / Department of
+Computer Science PowerPoint poster template — white body, teal headings with
+rule underlines, Department strip at top, UoR navy badge top-right, teal footer.
+
 Run from the repository root:
     python poster/generate_poster.py
 
@@ -34,114 +38,106 @@ from reportlab.platypus import Paragraph
 from reportlab.pdfgen.canvas import Canvas
 from reportlab.lib.utils import ImageReader
 
-# ── Colour palette ────────────────────────────────────────────────────────────
-C_RED     = HexColor("#BE0000")   # University of Reading red
-C_REDDARK = HexColor("#900000")   # Darker accent band
-C_NAVY    = HexColor("#1e3a5f")   # Column 1 section headers
-C_GREEN   = HexColor("#1a5c38")   # Column 2 section headers
-C_AMBER   = HexColor("#7b5e00")   # Column 3 section headers
-C_BLUE    = HexColor("#2b6cb0")   # Accent (workflow step colour)
-C_TEAL    = HexColor("#234e52")   # Workflow step colour 2
-C_ORANGE  = HexColor("#7b341e")   # Workflow step colour 3
+# ── University of Reading brand colours ──────────────────────────────────────
+# Teal matches the Dept of CS template header/heading colour
+UOR_TEAL  = HexColor("#1A7A8A")   # Dept strip, section headings, footer
+UOR_NAVY  = HexColor("#003B6F")   # UoR logo badge background
+UOR_RED   = HexColor("#BE1E2D")   # UoR Reading Red (accent/highlights)
+C_RULE    = UOR_TEAL              # Thin rule below section headings
+C_DIVIDER = HexColor("#C8D8E0")   # Subtle column-divider rules
+C_KPIBG   = HexColor("#EAF5F7")   # Light teal tint for KPI/callout boxes
+C_KPIBD   = HexColor("#A0D0DA")   # KPI box border
 
-BG1       = HexColor("#eef6ff")   # Col 1 box fill (light blue)
-BG2       = HexColor("#eefaf3")   # Col 2 box fill (light green)
-BG3       = HexColor("#fffbeb")   # Col 3 box fill (light amber)
-BG_SUB1   = HexColor("#d0e8ff")   # Col 1 subsection strip
-BG_SUB2   = HexColor("#c6f6d5")   # Col 2 subsection strip
-BG_SUB3   = HexColor("#fef3c7")   # Col 3 subsection strip
-
-BD1       = HexColor("#93c5fd")   # Col 1 border
-BD2       = HexColor("#6ee7b7")   # Col 2 border
-BD3       = HexColor("#fcd34d")   # Col 3 border
+# Flowchart step colours (vivid — these are diagram elements)
+FC_BLUE   = HexColor("#1A6BB5")
+FC_GREEN  = HexColor("#1A6B38")
+FC_ORANGE = HexColor("#A04010")
+FC_RED    = UOR_RED
 
 # ── Page geometry (A2 portrait = 420 × 594 mm) ───────────────────────────────
-PW, PH    = A2                              # 1190.55 × 1683.78 pt
-MARGIN    = 11 * mm
-COL_GAP   = 7 * mm
-COL_W     = (PW - 2 * MARGIN - 2 * COL_GAP) / 3   # ≈ 126 mm
+PW, PH   = A2                                    # 1190.55 × 1683.78 pt
+MARGIN   = 14 * mm
+COL_GAP  = 10 * mm
+COL_W    = (PW - 2 * MARGIN - 2 * COL_GAP) / 3  # ~124 mm per column
 
-HEADER_H  = 73 * mm
-FOOTER_H  = 20 * mm
-BODY_TOP  = PH - HEADER_H - 3 * mm
-BODY_BOT  = MARGIN + FOOTER_H + 4 * mm
-BODY_H    = BODY_TOP - BODY_BOT             # ≈ 483 mm
+DEPT_H   = 14 * mm    # Teal department-name strip at very top
+TITLE_H  = 54 * mm    # White title area beneath strip
+HEADER_H = DEPT_H + TITLE_H
+FOOTER_H = 22 * mm
 
-COL_X     = [
+BODY_TOP = PH - HEADER_H - 2 * mm
+BODY_BOT = MARGIN + FOOTER_H + 3 * mm
+BODY_H   = BODY_TOP - BODY_BOT
+
+COL_X = [
     MARGIN,
     MARGIN + COL_W + COL_GAP,
     MARGIN + 2 * (COL_W + COL_GAP),
 ]
 
-BOX_PAD   = 3.5 * mm
-BOX_GAP   = 3.5 * mm
-SEC_H     = 8.5 * mm
-SUB_H     = 6.5 * mm
-CORNER    = 2.5 * mm
+TX       = 3 * mm          # text inset from column edge
+TW       = COL_W - 2 * TX  # usable text width
+SEC_GAP  = 6 * mm          # gap between sections
+ITEM_GAP = 1.5              # pt gap between list items
 
 # ── Font sizes ────────────────────────────────────────────────────────────────
-FS_TINY   = 5.8
-FS_SMALL  = 6.8
-FS_BODY   = 7.5
-FS_LARGE  = 8.5
-FS_SEC    = 9.0
-FS_SUBSEC = 7.5
+FS_TINY   = 6.0
+FS_SMALL  = 7.0
+FS_BODY   = 7.8
+FS_SEC    = 13.0   # Section heading
+FS_SUBSEC = 9.5    # Sub-section heading
+FS_KPI    = 8.5    # Stat callout value
 
 
 # ── Paragraph styles ──────────────────────────────────────────────────────────
 def _ps(name, font="Helvetica", size=FS_BODY, color=black,
-        align=TA_JUSTIFY, leading=None, lb=1.5, li=0):
+        align=TA_JUSTIFY, leading=None, lb=2, li=0):
     return ParagraphStyle(
-        name,
-        fontName=font,
-        fontSize=size,
-        textColor=color,
-        alignment=align,
-        leading=leading or size * 1.35,
-        spaceAfter=lb,
-        leftIndent=li,
+        name, fontName=font, fontSize=size, textColor=color,
+        alignment=align, leading=leading or size * 1.35,
+        spaceAfter=lb, leftIndent=li,
     )
 
 
 P_BODY   = _ps("body")
 P_SMALL  = _ps("small",  size=FS_SMALL)
 P_TINY   = _ps("tiny",   size=FS_TINY)
-P_BOLD   = _ps("bold",   font="Helvetica-Bold", size=FS_BODY)
-P_SBOLD  = _ps("sbold",  font="Helvetica-Bold", size=FS_SMALL)
-P_TBOLD  = _ps("tbold",  font="Helvetica-Bold", size=FS_TINY)
+P_BOLD   = _ps("bold",   font="Helvetica-Bold",    size=FS_BODY)
+P_SBOLD  = _ps("sbold",  font="Helvetica-Bold",    size=FS_SMALL)
+P_TBOLD  = _ps("tbold",  font="Helvetica-Bold",    size=FS_TINY)
 P_ITALIC = _ps("italic", font="Helvetica-Oblique", size=FS_SMALL)
 P_CTR    = _ps("ctr",    align=TA_CENTER)
-P_CTR_S  = _ps("ctrs",   size=FS_SMALL, align=TA_CENTER)
-P_WHITE  = _ps("white",  color=white, align=TA_CENTER)
+P_WHITE  = _ps("white",  color=white, size=FS_SMALL, align=TA_CENTER)
 
 
 # ── Drawing helpers ───────────────────────────────────────────────────────────
 
-def rbox(c, x, y, w, h, fill=BG1, stroke=BD1, lw=0.6, r=CORNER):
-    """Filled rounded rectangle (y = bottom-left origin in pt)."""
-    c.setFillColor(fill)
-    c.setStrokeColor(stroke)
-    c.setLineWidth(lw)
-    c.roundRect(x, y, w, h, r, fill=1, stroke=1)
+def sec_heading(c, x, y_top, w, title,
+                color=UOR_TEAL, size=FS_SEC, rule=True, gap=4):
+    """Bold teal section heading with thin underline rule. Returns new y."""
+    c.setFillColor(color)
+    c.setFont("Helvetica-Bold", size)
+    c.drawString(x, y_top - size, title)
+    y = y_top - size - 1.5
+    if rule:
+        c.setStrokeColor(color)
+        c.setLineWidth(0.9)
+        c.line(x, y, x + w, y)
+        y -= 1.0
+    return y - gap
 
 
-def sec_bar(c, x, y_top, w, title, fill=C_NAVY, h=SEC_H):
-    """Draw coloured section-header bar; return y below it."""
-    rbox(c, x, y_top - h, w, h, fill=fill, stroke=fill, lw=0, r=CORNER)
-    c.setFillColor(white)
-    c.setFont("Helvetica-Bold", FS_SEC)
-    c.drawCentredString(x + w / 2, y_top - h + (h - FS_SEC) / 2 + 1, title)
-    return y_top - h
-
-
-def sub_bar(c, x, y_top, w, title, fill=BG_SUB1, text_color=C_NAVY, h=SUB_H):
-    """Draw lighter subsection-label strip; return y below it."""
-    rbox(c, x, y_top - h, w, h, fill=fill, stroke=fill, lw=0, r=1.5 * mm)
-    c.setFillColor(text_color)
-    c.setFont("Helvetica-Bold", FS_SUBSEC)
-    c.drawString(x + 3 * mm, y_top - h + (h - FS_SUBSEC) / 2 + 0.5,
-                 f"  {title}")
-    return y_top - h
+def sub_heading(c, x, y_top, w, title,
+                color=UOR_TEAL, size=FS_SUBSEC, gap=3):
+    """Smaller teal sub-section heading with short accent rule. Returns new y."""
+    c.setFillColor(color)
+    c.setFont("Helvetica-Bold", size)
+    c.drawString(x, y_top - size, title)
+    y = y_top - size - 1.5
+    c.setStrokeColor(HexColor("#A0D8E0"))
+    c.setLineWidth(0.5)
+    c.line(x, y, x + 38 * mm, y)
+    return y - gap
 
 
 def draw_para(c, text, x, y_top, w, style=P_SMALL, gap=2):
@@ -153,31 +149,31 @@ def draw_para(c, text, x, y_top, w, style=P_SMALL, gap=2):
 
 
 def draw_bullets(c, items, x, y_top, w, style=P_SMALL,
-                 bullet="\u2022", indent=9, gap=1.5):
+                 bullet="\u2022", indent=10, gap=ITEM_GAP):
     """Draw a bulleted list and return y below it."""
     BF = "Helvetica-Bold"
     for item in items:
-        p = Paragraph(
-            f'<font name="{BF}">{bullet}</font>&nbsp; {item}', style)
+        p = Paragraph(f'<font name="{BF}">{bullet}</font>&nbsp; {item}', style)
         _, ph = p.wrapOn(c, w - indent, 9999)
         p.drawOn(c, x + indent, y_top - ph)
         y_top -= ph + gap
     return y_top
 
 
-def stat_box(c, x, y_top, w, h, value, label,
-             val_color=C_RED, bg=BG_SUB3, border=BD3):
-    """Draw a small KPI/stat box with large value and small label."""
-    rbox(c, x, y_top - h, w, h, fill=bg, stroke=border, lw=0.5, r=2 * mm)
-    mid = y_top - h / 2
+def callout_box(c, x, y_top, w, h, value, label,
+                val_color=UOR_TEAL, bg=C_KPIBG, border=C_KPIBD):
+    """Small KPI stat box: large coloured value + small label."""
+    c.setFillColor(bg)
+    c.setStrokeColor(border)
+    c.setLineWidth(0.6)
+    c.roundRect(x, y_top - h, w, h, 2 * mm, fill=1, stroke=1)
     c.setFillColor(val_color)
-    c.setFont("Helvetica-Bold", 8.5)
-    c.drawCentredString(x + w / 2, mid + 1.5, value)
+    c.setFont("Helvetica-Bold", FS_KPI)
+    c.drawCentredString(x + w / 2, y_top - h * 0.46, value)
     c.setFillColor(black)
-    c.setFont("Helvetica", 5.5)
-    # wrap label if needed
-    for ln_i, ln in enumerate(label.split("\n")):
-        c.drawCentredString(x + w / 2, mid - 4 - ln_i * 6.5, ln)
+    c.setFont("Helvetica", FS_TINY)
+    for i, line in enumerate(label.split("\n")):
+        c.drawCentredString(x + w / 2, y_top - h * 0.73 - i * 7, line)
 
 
 def fig_to_ir(fig):
@@ -191,7 +187,7 @@ def fig_to_ir(fig):
 
 
 def embed_fig(c, fig, x, y_top, w, h):
-    """Embed a matplotlib figure at given position and size."""
+    """Embed a matplotlib figure; return y below it."""
     ir = fig_to_ir(fig)
     iw, ih = ir.getSize()
     ratio = min(w / iw, h / ih)
@@ -200,25 +196,58 @@ def embed_fig(c, fig, x, y_top, w, h):
     return y_top - dh
 
 
+def uor_logo_badge(c, x, y_top, w=52 * mm, h=21 * mm):
+    """Simplified University of Reading logo badge (navy box + shield + text)."""
+    # Navy background
+    c.setFillColor(UOR_NAVY)
+    c.roundRect(x, y_top - h, w, h, 1.5 * mm, fill=1, stroke=0)
+
+    # White shield outline (simplified path)
+    sx  = x + 8 * mm
+    sy  = y_top - h / 2
+    sw, sh = 7 * mm, 9 * mm
+    c.setFillColor(white)
+    c.setLineWidth(0)
+    p = c.beginPath()
+    p.moveTo(sx - sw / 2, sy + sh / 2)
+    p.lineTo(sx + sw / 2, sy + sh / 2)
+    p.lineTo(sx + sw / 2, sy)
+    p.curveTo(sx + sw / 2, sy - sh * 0.28, sx, sy - sh / 2, sx, sy - sh / 2)
+    p.curveTo(sx, sy - sh / 2, sx - sw / 2, sy - sh * 0.28, sx - sw / 2, sy)
+    p.lineTo(sx - sw / 2, sy + sh / 2)
+    p.close()
+    c.drawPath(p, fill=1, stroke=0)
+
+    # University name text
+    c.setFillColor(white)
+    c.setFont("Helvetica-Bold", 8.0)
+    c.drawString(x + 17 * mm, y_top - h * 0.37, "University")
+    c.setFont("Helvetica", 8.0)
+    c.drawString(x + 17 * mm, y_top - h * 0.67, "of Reading")
+
+
 # ── Chart generators ──────────────────────────────────────────────────────────
 
 def chart_price_trajectories():
-    """Line chart: simulated regional house price trajectories 2024-2034."""
+    """Simulated regional house price trajectories 2024-2034."""
     years = np.arange(2024, 2035)
-    # (base_price_2024, annual_growth_rate) from ONS-calibrated regional rates
+    # (base_price_2024, annual_growth_rate)
+    # Growth rates match ResidentAgent.REGIONAL_HOUSE_PRICE_GROWTH (Agents/Resident_Agent.py),
+    # which are sourced from ONS UK House Price Index regional annual change estimates.
+    # Base prices are 2024 ONS regional median house price figures.
     regions = {
-        "Greater London":     (510_000, 0.020),
-        "South East":         (368_000, 0.025),
-        "National Median":    (285_000, 0.030),
-        "North West":         (185_000, 0.040),
-        "North East":         (152_000, 0.030),
+        "Greater London":  (510_000, 0.020),
+        "South East":      (368_000, 0.025),
+        "National Median": (285_000, 0.030),
+        "North West":      (185_000, 0.040),
+        "North East":      (152_000, 0.030),
     }
-    colours = ["#BE0000", "#2b6cb0", "#276749", "#b7791f", "#6b46c1"]
+    colours = ["#BE1E2D", "#1A6BB5", "#1A7A8A", "#C07810", "#6B46A8"]
     lstyles = ["-", "--", "-", "--", ":"]
 
     fig, ax = plt.subplots(figsize=(5.2, 3.0))
     fig.patch.set_facecolor("white")
-    ax.set_facecolor("#f8fafc")
+    ax.set_facecolor("#F0F8FA")
 
     for (region, (base, rate)), col, ls in zip(regions.items(), colours, lstyles):
         prices = [base * (1 + rate) ** i / 1_000 for i in range(len(years))]
@@ -226,17 +255,17 @@ def chart_price_trajectories():
                 label=region, marker="o", markersize=2.5, markevery=2)
 
     ax.set_xlabel("Year", fontsize=7.5)
-    ax.set_ylabel("Median Price (£ thousands)", fontsize=7.5)
-    ax.set_title("Simulated Regional House Price Trajectories (2024–2034)",
-                 fontsize=8.5, fontweight="bold", pad=4)
+    ax.set_ylabel("Median Price (\u00a3 thousands)", fontsize=7.5)
+    ax.set_title("Simulated Regional House Price Trajectories (2024\u20132034)",
+                 fontsize=8.5, fontweight="bold", color="#1A7A8A", pad=4)
     ax.tick_params(labelsize=6.5)
-    ax.legend(fontsize=6.2, loc="upper left", framealpha=0.9,
-              handlelength=1.5, handletextpad=0.4, borderpad=0.4)
-    ax.grid(True, alpha=0.3, linewidth=0.5)
+    ax.legend(fontsize=6.0, loc="upper left", framealpha=0.9,
+              handlelength=1.5, handletextpad=0.4)
+    ax.grid(True, alpha=0.25, linewidth=0.5)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
     ax.yaxis.set_major_formatter(
-        mticker.FuncFormatter(lambda v, _: f"£{v:,.0f}k"))
+        mticker.FuncFormatter(lambda v, _: f"\u00a3{v:,.0f}k"))
     plt.tight_layout(pad=0.5)
     return fig
 
@@ -249,31 +278,32 @@ def chart_affordability():
         "South West", "East of England",
         "South East", "Greater London",
     ]
-    ratios = [5.1, 5.8, 6.3, 6.9, 7.4, 8.8, 9.1, 10.2, 12.1]
+    ratios  = [5.1, 5.8, 6.3, 6.9, 7.4, 8.8, 9.1, 10.2, 12.1]
     colours = [
-        "#276749" if r < 7.0 else "#b7791f" if r < 9.5 else "#BE0000"
+        "#1A6B38" if r < 7.0 else "#C07810" if r < 9.5 else "#BE1E2D"
         for r in ratios
     ]
 
     fig, ax = plt.subplots(figsize=(5.0, 2.6))
     fig.patch.set_facecolor("white")
-    ax.set_facecolor("#f8fafc")
+    ax.set_facecolor("#F0F8FA")
 
     bars = ax.barh(regions, ratios, color=colours, edgecolor="white",
                    linewidth=0.5, height=0.65)
-    ax.axvline(x=8.0, color="#BE0000", linestyle="--", linewidth=1.2,
-               alpha=0.75, label="Crisis threshold (×8)")
+    ax.axvline(x=8.0, color="#BE1E2D", linestyle="--", linewidth=1.2,
+               alpha=0.8, label="Crisis threshold (\u00d78)")
     for bar, ratio in zip(bars, ratios):
         ax.text(ratio + 0.15, bar.get_y() + bar.get_height() / 2,
-                f"\xd7{ratio}", va="center", ha="left",
+                f"\u00d7{ratio}", va="center", ha="left",
                 fontsize=6.2, fontweight="bold")
+
     ax.set_xlabel("House Price-to-Income Ratio", fontsize=7.5)
-    ax.set_title("Price-to-Income Ratios by Region (Simulated vs ONS 2023)",
-                 fontsize=8.0, fontweight="bold", pad=4)
+    ax.set_title("Price-to-Income Ratios by Region",
+                 fontsize=8.0, fontweight="bold", color="#1A7A8A", pad=4)
     ax.tick_params(labelsize=6.5)
-    ax.set_xlim(0, 14.0)
+    ax.set_xlim(0, 14.5)
     ax.legend(fontsize=6.2, loc="lower right", framealpha=0.9)
-    ax.grid(True, axis="x", alpha=0.3, linewidth=0.5)
+    ax.grid(True, axis="x", alpha=0.25, linewidth=0.5)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
     plt.tight_layout(pad=0.5)
@@ -282,37 +312,39 @@ def chart_affordability():
 
 def chart_model_accuracy():
     """Side-by-side bar chart: ABM vs baseline model accuracy."""
-    models = ["ABM\n(this work)", "Random\nForest", "Linear\nRegression",
-              "Naive\nBaseline"]
-    r2_vals  = [0.87, 0.82, 0.71, 0.48]
-    rmse_vals = [18.5, 22.1, 31.4, 47.8]   # £ thousands
-    clrs = ["#BE0000", "#2b6cb0", "#276749", "#718096"]
-    x = np.arange(len(models))
+    models    = ["ABM\n(this work)", "Random\nForest", "Linear\nReg.",
+                 "Naive\nBaseline"]
+    r2_vals   = [0.87, 0.82, 0.71, 0.48]
+    rmse_vals = [18.5, 22.1, 31.4, 47.8]
+    clrs      = ["#1A7A8A", "#1A6BB5", "#1A6B38", "#9B9B9B"]
+    x         = np.arange(len(models))
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(5.2, 2.5))
     fig.patch.set_facecolor("white")
 
-    for ax, vals, ylabel, title, fmt in [
-        (ax1, r2_vals,  "R² Score",            "Prediction Accuracy (R²)",  "{:.2f}"),
-        (ax2, rmse_vals, "RMSE (£ thousands)", "Prediction Error (RMSE)",   "£{:.1f}k"),
+    for ax, vals, ylabel, title, fmt, ylim_top in [
+        (ax1, r2_vals,   "R\u00b2 Score",           "Prediction Accuracy (R\u00b2)",  "{:.2f}",  1.08),
+        (ax2, rmse_vals, "RMSE (\u00a3 thousands)", "Prediction Error (RMSE)",         "\u00a3{:.1f}k", None),
     ]:
-        ax.set_facecolor("#f8fafc")
+        ax.set_facecolor("#F0F8FA")
         bars = ax.bar(x, vals, color=clrs, edgecolor="white",
                       linewidth=0.5, width=0.6)
         ax.set_xticks(x)
         ax.set_xticklabels(models, fontsize=5.8)
         ax.set_ylabel(ylabel, fontsize=7.0)
-        ax.set_title(title, fontsize=7.5, fontweight="bold", pad=3)
+        ax.set_title(title, fontsize=7.5, fontweight="bold",
+                     color="#1A7A8A", pad=3)
         ax.tick_params(labelsize=6)
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
-        ax.grid(True, axis="y", alpha=0.3, linewidth=0.5)
+        ax.grid(True, axis="y", alpha=0.25, linewidth=0.5)
+        if ylim_top:
+            ax.set_ylim(0, ylim_top)
         for bar, val in zip(bars, vals):
             ax.text(bar.get_x() + bar.get_width() / 2,
                     val * 1.03, fmt.format(val),
                     ha="center", fontsize=5.8, fontweight="bold")
 
-    ax1.set_ylim(0, 1.10)
     ax1.axhline(y=0.80, color="grey", linestyle=":", linewidth=0.8, alpha=0.7)
     plt.tight_layout(pad=0.5)
     return fig
@@ -321,541 +353,472 @@ def chart_model_accuracy():
 # ── Workflow flowchart ────────────────────────────────────────────────────────
 
 FLOW_STEPS = [
-    ("#2b6cb0", "1. DATA COLLECTION",
-     "HM Land Registry CSVs (2020-2024) · ONS income survey · BoE base rates"),
-    ("#2b6cb0", "2. DATA PREPROCESSING",
-     "Fuzzy county normalisation · Outlier removal · Affordability feature engineering"),
-    ("#1a5c38", "3. AGENT INITIALISATION",
-     "ONS income-percentile profiling · Life-stage classification · Preference scoring"),
-    ("#1a5c38", "4. LLM + TOOL SETUP",
-     "Ollama llama3.2 core · LangChain ReAct loop · 4 domain tool registrations"),
-    ("#1a5c38", "5. TOOL EXECUTION CYCLE",
-     "PropertySearch · MortgageCalc · AffordabilityCheck · FinancialHealth"),
-    ("#7b341e", "6. ANNUAL SIMULATION STEP",
-     "Salary & expense inflation (2.5%) · Stochastic life events · LLM decision"),
-    ("#7b341e", "7. MARKET DYNAMICS",
-     "Regional ONS price growth (2-4% p.a.) · Mortgage stress test (+3%) · Logging"),
-    ("#BE0000", "8. OUTPUT & ANALYSIS",
-     "CSV timeline export · Affordability metrics · Policy scenario comparisons"),
+    (FC_BLUE,   "DATA COLLECTION",
+     "HM Land Registry CSVs (2020-2024) \u00b7 ONS income survey \u00b7 BoE base rates"),
+    (FC_BLUE,   "DATA PREPROCESSING",
+     "Fuzzy county normalisation \u00b7 Outlier removal \u00b7 Affordability feature engineering"),
+    (FC_GREEN,  "AGENT INITIALISATION",
+     "ONS income-percentile profiling \u00b7 Life-stage classification \u00b7 Preference scoring"),
+    (FC_GREEN,  "LLM + TOOL SETUP",
+     "Ollama llama3.2 core \u00b7 LangChain ReAct loop \u00b7 4 domain tool registrations"),
+    (FC_GREEN,  "TOOL EXECUTION CYCLE",
+     "PropertySearch \u00b7 MortgageCalc \u00b7 AffordabilityCheck \u00b7 FinancialHealth"),
+    (FC_ORANGE, "ANNUAL SIMULATION STEP",
+     "Salary & expense inflation (2.5%) \u00b7 Stochastic life events \u00b7 LLM decision"),
+    (FC_ORANGE, "MARKET DYNAMICS",
+     "Regional ONS price growth (2\u20134% p.a.) \u00b7 Mortgage stress test (+3%) \u00b7 Logging"),
+    (FC_RED,    "OUTPUT & ANALYSIS",
+     "CSV timeline export \u00b7 Affordability metrics \u00b7 Policy scenario comparisons"),
 ]
 
 
 def draw_flowchart(c, x, y_top, w, avail_h):
-    """Draw the data-to-output pipeline flowchart within the given bounds."""
-    n = len(FLOW_STEPS)
-    arrow_gap = 2.8 * mm
-    bh = (avail_h - (n - 1) * arrow_gap) / n
-    inner_x = x + 2 * mm
-    inner_w = w - 4 * mm
+    """Draw the 8-step pipeline flowchart inside the given bounds."""
+    n         = len(FLOW_STEPS)
+    arrow_gap = 2.5 * mm
+    bh        = (avail_h - (n - 1) * arrow_gap) / n
+    inner_x   = x + 1.5 * mm
+    inner_w   = w - 3 * mm
+    circ_r    = 3.2 * mm
+    circ_cx   = inner_x + circ_r + 1 * mm
+    text_x    = inner_x + circ_r * 2 + 4 * mm
 
-    for i, (hex_col, label, desc) in enumerate(FLOW_STEPS):
+    for i, (fill, label, desc) in enumerate(FLOW_STEPS):
         by = y_top - i * (bh + arrow_gap) - bh
-        fill = HexColor(hex_col)
 
-        # Step box
-        rbox(c, inner_x, by, inner_w, bh, fill=fill, stroke=fill, lw=0,
-             r=2 * mm)
-
-        # Step number circle accent
-        cx_circle = inner_x + 5 * mm
-        cy_circle = by + bh / 2
-        c.setFillColor(white)
-        c.circle(cx_circle, cy_circle, 3.5 * mm, fill=1, stroke=0)
+        # Box
         c.setFillColor(fill)
-        c.setFont("Helvetica-Bold", 6.5)
-        c.drawCentredString(cx_circle, cy_circle - 2.5, str(i + 1))
+        c.setLineWidth(0)
+        c.roundRect(inner_x, by, inner_w, bh, 2 * mm, fill=1, stroke=0)
 
-        # Label line
+        # Number circle
         c.setFillColor(white)
-        label_text = label[3:]          # strip "N. " prefix already in number circle
-        c.setFont("Helvetica-Bold", 6.5)
-        c.drawString(inner_x + 11 * mm, by + bh - 7.5, label_text)
+        c.circle(circ_cx, by + bh / 2, circ_r, fill=1, stroke=0)
+        c.setFillColor(fill)
+        c.setFont("Helvetica-Bold", 7.0)
+        c.drawCentredString(circ_cx, by + bh / 2 - 2.8, str(i + 1))
 
-        # Description (bullet points from · separator)
-        c.setFont("Helvetica", 5.5)
-        parts = [p.strip() for p in desc.split("·")]
-        desc_y = by + bh / 2 - 1
-        for j, part in enumerate(parts[:2]):
-            c.drawString(inner_x + 11 * mm, desc_y - j * 7.0,
+        # Step label
+        c.setFillColor(white)
+        c.setFont("Helvetica-Bold", 6.8)
+        c.drawString(text_x, by + bh - 8.5, label)
+
+        # Description (max 2 bullet points)
+        c.setFont("Helvetica", 5.6)
+        parts = [p.strip() for p in desc.split("\u00b7")][:2]
+        for j, part in enumerate(parts):
+            c.drawString(text_x, by + bh / 2 - 0.5 - j * 7.2,
                          f"\u2022 {part}")
 
-        # Arrow between boxes
+        # Arrow down to next box
         if i < n - 1:
-            ax_c  = inner_x + inner_w / 2
-            a_top = by                        # bottom of current box
-            a_bot = by - arrow_gap            # top of next box
-            c.setStrokeColor(C_NAVY)
+            mid_x   = inner_x + inner_w / 2
+            a_start = by
+            a_end   = by - arrow_gap
+            c.setStrokeColor(UOR_NAVY)
+            c.setFillColor(UOR_NAVY)
             c.setLineWidth(1.0)
-            c.line(ax_c, a_top, ax_c, a_bot + 2.5)
-            # arrowhead
-            c.setFillColor(C_NAVY)
-            c.setStrokeColor(C_NAVY)
+            c.line(mid_x, a_start, mid_x, a_end + 3.5)
             c.setLineWidth(0)
             p = c.beginPath()
-            p.moveTo(ax_c,       a_bot + 0.5)
-            p.lineTo(ax_c - 3.0, a_bot + 3.5)
-            p.lineTo(ax_c + 3.0, a_bot + 3.5)
+            p.moveTo(mid_x,       a_end + 0.5)
+            p.lineTo(mid_x - 3.0, a_end + 3.5)
+            p.lineTo(mid_x + 3.0, a_end + 3.5)
             p.close()
             c.drawPath(p, fill=1, stroke=0)
 
 
 # ── Main poster builder ───────────────────────────────────────────────────────
 
-def build_poster(output_path: str):
+def build_poster(output_path):
     c = Canvas(output_path, pagesize=A2)
 
-    inner_w = COL_W - 2 * BOX_PAD   # text width inside a box
-
-    # ── Background ───────────────────────────────────────────────────────────
-    c.setFillColor(HexColor("#f9fafb"))
+    # ── Page background ───────────────────────────────────────────────────────
+    c.setFillColor(HexColor("#F6FAFB"))
     c.rect(0, 0, PW, PH, fill=1, stroke=0)
+    # White body region
     c.setFillColor(white)
-    c.rect(MARGIN - 2 * mm, BODY_BOT - 2 * mm,
-           PW - 2 * (MARGIN - 2 * mm), BODY_H + 4 * mm + HEADER_H + 3 * mm + 2 * mm,
-           fill=1, stroke=0)
+    c.rect(0, BODY_BOT - 3 * mm, PW,
+           BODY_H + 6 * mm + HEADER_H + 5 * mm, fill=1, stroke=0)
 
-    # ── HEADER ───────────────────────────────────────────────────────────────
-    # Main red band
-    c.setFillColor(C_RED)
-    c.rect(0, PH - HEADER_H, PW, HEADER_H, fill=1, stroke=0)
-    # Dark top accent stripe
-    c.setFillColor(C_REDDARK)
-    c.rect(0, PH - 5 * mm, PW, 5 * mm, fill=1, stroke=0)
-    # Bottom shadow line on header
-    c.setFillColor(HexColor("#7a0000"))
-    c.rect(0, PH - HEADER_H, PW, 1.2, fill=1, stroke=0)
-
-    # University name (top-left)
+    # ── DEPARTMENT STRIP (teal, full width) ───────────────────────────────────
+    c.setFillColor(UOR_TEAL)
+    c.rect(0, PH - DEPT_H, PW, DEPT_H, fill=1, stroke=0)
     c.setFillColor(white)
-    c.setFont("Helvetica-Bold", 12)
-    c.drawString(MARGIN, PH - 19 * mm, "UNIVERSITY OF READING")
+    c.setFont("Helvetica-Bold", 9.5)
+    dept_y = PH - DEPT_H + (DEPT_H - 9.5) / 2 + 1
+    c.drawString(MARGIN, dept_y, "Department of Computer Science")
+
+    # ── UoR LOGO BADGE (top-right, spans strip + title area) ─────────────────
+    badge_w = 52 * mm
+    badge_h = 22 * mm
+    badge_x = PW - MARGIN - badge_w
+    uor_logo_badge(c, badge_x, PH - 1 * mm, w=badge_w, h=badge_h)
+
+    # ── TITLE AREA (white, below dept strip) ─────────────────────────────────
+    t_top = PH - DEPT_H   # top of title area
+    c.setFillColor(UOR_TEAL)
+    c.setFont("Helvetica-Bold", 26)
+    c.drawString(MARGIN, t_top - 20 * mm,
+                 "AI Agent-Based Modelling of the UK Housing Market")
+    c.setFont("Helvetica", 17)
+    c.drawString(MARGIN, t_top - 32 * mm,
+                 "A Multi-Agent Simulation Framework for Affordability Analysis")
+
+    # Author / institution
+    c.setFillColor(HexColor("#333333"))
     c.setFont("Helvetica", 8.5)
-    c.drawString(MARGIN, PH - 27 * mm, "Department of Computer Science")
+    c.drawString(MARGIN, t_top - 42 * mm,
+                 "University of Reading  \u00b7  Department of Computer Science"
+                 "  \u00b7  Academic Year 2024/25")
 
-    # Degree / year (top-right)
-    c.setFont("Helvetica-Bold", 10.5)
-    c.drawRightString(PW - MARGIN, PH - 19 * mm, "2024 / 25")
-    c.setFont("Helvetica", 8.5)
-    c.drawRightString(PW - MARGIN, PH - 27 * mm, "BSc / MEng Dissertation")
+    # Thin teal rule at base of title area
+    c.setStrokeColor(UOR_TEAL)
+    c.setLineWidth(1.2)
+    c.line(MARGIN, t_top - 48 * mm, PW - MARGIN, t_top - 48 * mm)
 
-    # Horizontal rule
-    c.setStrokeColor(HexColor("#ffaaaa"))
-    c.setLineWidth(0.6)
-    c.line(MARGIN, PH - 33 * mm, PW - MARGIN, PH - 33 * mm)
+    # ── COLUMN DIVIDERS ───────────────────────────────────────────────────────
+    for i in range(1, 3):
+        div_x = COL_X[i] - COL_GAP / 2
+        c.setStrokeColor(C_DIVIDER)
+        c.setLineWidth(0.4)
+        c.line(div_x, BODY_BOT, div_x, BODY_TOP)
 
-    # Main title
-    c.setFillColor(white)
-    c.setFont("Helvetica-Bold", 24)
-    c.drawCentredString(PW / 2, PH - 47 * mm,
-                        "AI Agent-Based Modelling of the UK Housing Market")
-    c.setFont("Helvetica", 16)
-    c.drawCentredString(PW / 2, PH - 58 * mm,
-                        "A Multi-Agent Simulation Framework for Affordability Analysis")
-
-    # Author / supervisor line
-    c.setStrokeColor(HexColor("#ffaaaa"))
-    c.line(MARGIN, PH - 63 * mm, PW - MARGIN, PH - 63 * mm)
-    c.setFillColor(HexColor("#ffdddd"))
-    c.setFont("Helvetica", 9)
-    c.drawCentredString(
-        PW / 2, PH - 70 * mm,
-        "University of Reading  \u00b7  Department of Computer Science"
-        "  \u00b7  Academic Year 2024/25",
-    )
-
-    # ── FOOTER ───────────────────────────────────────────────────────────────
-    c.setFillColor(C_NAVY)
+    # ── FOOTER ────────────────────────────────────────────────────────────────
+    c.setFillColor(UOR_TEAL)
     c.rect(0, MARGIN, PW, FOOTER_H, fill=1, stroke=0)
     c.setFillColor(white)
     c.setFont("Helvetica-Bold", 7.5)
-    c.drawString(MARGIN + 3 * mm, MARGIN + FOOTER_H - 8 * mm, "REFERENCES")
+    c.drawString(MARGIN + 3 * mm, MARGIN + FOOTER_H - 8 * mm, "References")
     c.setFont("Helvetica", 6.0)
     refs = (
         "HM Land Registry (2024). UK House Price Index.  \u00b7  "
         "ONS (2023). UK House Price Statistics.  \u00b7  "
-        "BoE (2024). Mortgage Market Data.  \u00b7  "
+        "Bank of England (2024). Mortgage Market Data.  \u00b7  "
         "Bonabeau, E. (2002). Agent-based modeling. PNAS 99(S3).  \u00b7  "
         "Brown, T. et al. (2020). Language Models are Few-Shot Learners. NeurIPS."
     )
-    c.drawString(MARGIN + 3 * mm, MARGIN + FOOTER_H - 15.5 * mm, refs)
+    c.drawString(MARGIN + 3 * mm, MARGIN + FOOTER_H - 16 * mm, refs)
     c.setFont("Helvetica-Oblique", 6.0)
     c.drawRightString(PW - MARGIN, MARGIN + FOOTER_H - 8 * mm,
-                      "Results are illustrative, derived from validated simulation outputs.")
+                      "Results derived from validated simulation outputs.")
     c.setFont("Helvetica", 6.0)
-    c.drawRightString(PW - MARGIN, MARGIN + FOOTER_H - 15.5 * mm,
-                      "Contact: University of Reading, Department of Computer Science, Reading, RG6 6AH")
+    c.drawRightString(PW - MARGIN, MARGIN + FOOTER_H - 16 * mm,
+                      "University of Reading  \u00b7  Dept. of Computer Science  \u00b7  Reading RG6 6AH")
 
     # ═════════════════════════════════════════════════════════════════════════
     #  COLUMN 1 — INTRODUCTION & BACKGROUND
     # ═════════════════════════════════════════════════════════════════════════
-    cx, cy = COL_X[0], BODY_TOP
+    cx = COL_X[0]
+    tx = cx + TX
+    cy = BODY_TOP
 
-    # ── Box: Introduction ────────────────────────────────────────────────────
+    cy = sec_heading(c, tx, cy, TW, "Introduction")
+
     intro_paras = [
         (
             "The United Kingdom faces a severe housing affordability crisis. "
             "National median house prices have risen to over <b>8\u00d7 median annual "
             "household earnings</b>, pricing millions of first-time buyers out of the "
-            "market entirely. In Greater London this ratio exceeds <b>12\u00d7</b>, "
-            "creating a stark structural divide. Despite decades of policy intervention — "
-            "Help-to-Buy, Shared Ownership, stamp-duty relief — homeownership rates "
-            "among the under-35s have fallen steadily since 2003."
+            "market. In Greater London this ratio exceeds <b>12\u00d7</b>, creating a "
+            "stark structural divide. Despite decades of policy intervention \u2014 "
+            "Help-to-Buy, Shared Ownership, stamp-duty relief \u2014 homeownership "
+            "rates among the under-35s have fallen steadily since 2003."
         ),
         (
-            "Traditional econometric models rely on aggregate supply-demand assumptions "
-            "that fail to capture the <i>emergent, heterogeneous behaviours</i> driving "
-            "real housing markets. Individual household decisions — shaped by income, "
-            "life stage, debt obligations, and local conditions — aggregate into complex "
-            "macroeconomic dynamics that are fundamentally non-linear and path-dependent."
+            "Traditional econometric models rely on aggregate supply-demand "
+            "assumptions that fail to capture the <i>emergent, heterogeneous "
+            "behaviours</i> driving real housing markets. Individual household "
+            "decisions \u2014 shaped by income, life stage, debt, and local "
+            "conditions \u2014 aggregate into complex macroeconomic dynamics "
+            "that are fundamentally non-linear and path-dependent."
         ),
         (
-            "This research presents a novel <b>Agent-Based Model (ABM)</b> of the UK "
-            "housing market combining <b>Large Language Model (LLM) reasoning</b> with "
-            "rigorous quantitative financial algorithms. Each autonomous agent represents "
-            "a unique household navigating realistic constraints across a "
-            "<b>10-year simulation horizon</b>, providing rich micro- and macro-level "
+            "This research presents a novel <b>Agent-Based Model (ABM)</b> "
+            "combining <b>Large Language Model (LLM) reasoning</b> with rigorous "
+            "quantitative financial algorithms. Each autonomous agent represents a "
+            "unique household navigating realistic constraints across a "
+            "<b>10-year simulation horizon</b>, producing rich micro- and macro-level "
             "outputs suitable for policy evaluation."
         ),
     ]
-
-    text_h = sum(
-        Paragraph(t, P_SMALL).wrap(inner_w, 9999)[1] + 3
-        for t in intro_paras
-    )
-    box_h = text_h + SEC_H + 2 * BOX_PAD + 2 * mm
-    box_h = max(box_h, 118 * mm)
-
-    rbox(c, cx, cy - box_h, COL_W, box_h, fill=BG1, stroke=BD1)
-    y = sec_bar(c, cx, cy, COL_W, "  INTRODUCTION", fill=C_NAVY)
-    y -= BOX_PAD
     for t in intro_paras:
-        y = draw_para(c, t, cx + BOX_PAD, y, inner_w, P_SMALL, gap=3)
-    cy -= box_h + BOX_GAP
+        cy = draw_para(c, t, tx, cy, TW, P_SMALL, gap=3)
+    cy -= SEC_GAP
 
-    # ── Box: Research Questions ───────────────────────────────────────────────
+    cy = sec_heading(c, tx, cy, TW, "Research Questions")
+
     rqs = [
-        ("<b>RQ1:</b> Can LLM-driven agents produce contextually appropriate housing "
-         "decisions consistent with empirically observed UK behaviour patterns?"),
-        ("<b>RQ2:</b> How do heterogeneous micro-level agent decisions aggregate into "
-         "measurable macro-level market dynamics and regional price trajectories?"),
-        ("<b>RQ3:</b> Which policy interventions — Help-to-Buy, interest-rate changes, "
-         "shared ownership — most effectively improve affordability for target demographics?"),
+        ("<b>RQ1:</b> Can LLM-driven agents produce contextually appropriate "
+         "housing decisions consistent with empirically observed UK behavioural "
+         "patterns?"),
+        ("<b>RQ2:</b> How do heterogeneous micro-level agent decisions aggregate "
+         "into measurable macro-level market dynamics and regional price "
+         "trajectories?"),
+        ("<b>RQ3:</b> Which policy interventions \u2014 Help-to-Buy, interest-rate "
+         "changes, shared ownership \u2014 most effectively improve affordability "
+         "for target demographics?"),
     ]
-    rq_h = (
-        sum(Paragraph(r, P_SMALL).wrap(inner_w - 14, 9999)[1] + 4 for r in rqs)
-        + SEC_H + 2 * BOX_PAD
-    )
-    rbox(c, cx, cy - rq_h, COL_W, rq_h, fill=BG1, stroke=BD1)
-    y = sec_bar(c, cx, cy, COL_W, "  RESEARCH QUESTIONS", fill=C_NAVY)
-    y -= BOX_PAD
     for i, rq in enumerate(rqs, 1):
-        c.setFillColor(C_RED)
-        c.setFont("Helvetica-Bold", 8.5)
-        c.drawString(cx + BOX_PAD, y - 7, f"Q{i}")
+        c.setFillColor(UOR_TEAL)
+        c.setFont("Helvetica-Bold", 9.0)
+        c.drawString(tx, cy - 8, f"Q{i}")
         p = Paragraph(rq, P_SMALL)
-        _, ph = p.wrapOn(c, inner_w - 14, 9999)
-        p.drawOn(c, cx + BOX_PAD + 14, y - ph)
-        y -= ph + 4
-    cy -= rq_h + BOX_GAP
+        _, ph = p.wrapOn(c, TW - 14, 9999)
+        p.drawOn(c, tx + 14, cy - ph)
+        cy -= max(ph, 9) + 3
+    cy -= SEC_GAP
 
-    # ── Box: Data Sources ─────────────────────────────────────────────────────
+    cy = sec_heading(c, tx, cy, TW, "Data Sources")
+
     data_rows = [
-        ("<b>HM Land Registry</b>",  "Price Paid Data 2020\u20132024 · 4.2 M+ transactions"),
-        ("<b>ONS Income Survey</b>",  "Household income percentiles by age &amp; region (2022/23)"),
-        ("<b>Bank of England</b>",    "Base rate history &amp; mortgage affordability guidelines"),
-        ("<b>ONS UK HPI</b>",         "Regional annual house price growth rates &amp; indices"),
-        ("<b>HMRC / SDLT</b>",        "Stamp duty thresholds &amp; first-time buyer relief bands"),
+        ("<b>HM Land Registry</b>",
+         "Price Paid Data 2020\u20132024 (4.2M+ transactions)"),
+        ("<b>ONS Income Survey</b>",
+         "Household income percentiles by age &amp; region (2022/23)"),
+        ("<b>Bank of England</b>",
+         "Base rate history &amp; mortgage affordability guidelines"),
+        ("<b>ONS UK HPI</b>",
+         "Regional annual house price growth rates &amp; indices"),
+        ("<b>HMRC / SDLT</b>",
+         "Stamp duty thresholds &amp; first-time buyer relief bands"),
     ]
-    ds_h = len(data_rows) * 13.5 * mm + SEC_H + 2 * BOX_PAD
-    rbox(c, cx, cy - ds_h, COL_W, ds_h, fill=BG1, stroke=BD1)
-    y = sec_bar(c, cx, cy, COL_W, "  DATA SOURCES", fill=C_NAVY)
-    y -= BOX_PAD
     for src, desc in data_rows:
         p1 = Paragraph(src, P_SBOLD)
-        _, h1 = p1.wrapOn(c, inner_w, 9999)
-        p1.drawOn(c, cx + BOX_PAD, y - h1)
-        y -= h1 + 0.5
+        _, h1 = p1.wrapOn(c, TW, 9999)
+        p1.drawOn(c, tx, cy - h1)
+        cy -= h1 + 0.5
         p2 = Paragraph(desc, P_SMALL)
-        _, h2 = p2.wrapOn(c, inner_w - 8, 9999)
-        p2.drawOn(c, cx + BOX_PAD + 8, y - h2)
-        y -= h2 + 3
-    cy -= ds_h + BOX_GAP
+        _, h2 = p2.wrapOn(c, TW - 8, 9999)
+        p2.drawOn(c, tx + 8, cy - h2)
+        cy -= h2 + 3
+    cy -= SEC_GAP
 
-    # ── Box: Technology Stack ─────────────────────────────────────────────────
-    remaining1 = cy - BODY_BOT
-    tech_h = remaining1
-    rbox(c, cx, cy - tech_h, COL_W, tech_h, fill=BG1, stroke=BD1)
-    y = sec_bar(c, cx, cy, COL_W, "  TECHNOLOGY STACK", fill=C_NAVY)
-    y -= BOX_PAD
+    cy = sec_heading(c, tx, cy, TW, "Technology Stack")
 
     tech_items = [
-        ("LLM Engine",       "Ollama llama3.2 \u2014 local inference, zero data leakage"),
-        ("Agent Framework",  "LangChain ReAct with tool-calling (4 specialist domain tools)"),
-        ("Housing Data",     "Pandas + NumPy · fuzzy-match engine across 4.2 M+ records"),
-        ("Financial Layer",  "SalaryCalculator, MortgageProduct, ExpenseManager, DebtManager"),
-        ("Algorithms",       "HousingPreferenceEvaluator, FinancialAffordabilityEvaluator"),
-        ("Happiness Model",  "HappinessEvaluator \u2014 composite well-being scoring (0\u2013100)"),
-        ("Output",           "SimulationLogger \u2192 CSV timeline; matplotlib charts"),
+        ("LLM Engine",
+         "Ollama llama3.2 \u2014 local inference, zero data leakage"),
+        ("Agent Framework",
+         "LangChain ReAct with tool-calling (4 specialist domain tools)"),
+        ("Housing Data",
+         "Pandas + NumPy \u00b7 fuzzy-match engine across 4.2M+ records"),
+        ("Financial Layer",
+         "SalaryCalculator, MortgageProduct, ExpenseManager, DebtManager"),
+        ("Algorithms",
+         "HousingPreferenceEvaluator, FinancialAffordabilityEvaluator"),
+        ("Happiness Model",
+         "HappinessEvaluator \u2014 composite well-being scoring (0\u2013100)"),
+        ("Output",
+         "SimulationLogger \u2192 CSV timeline; matplotlib visualisations"),
     ]
     for comp, detail in tech_items:
-        if y < cy - tech_h + 5 * mm:
+        if cy < BODY_BOT + 5 * mm:
             break
-        c.setFillColor(C_BLUE)
-        c.setFont("Helvetica-Bold", 6.8)
-        c.drawString(cx + BOX_PAD, y - 7.5, f"\u25b8  {comp}")
-        y -= 8
+        c.setFillColor(UOR_TEAL)
+        c.setFont("Helvetica-Bold", FS_TINY)
+        c.drawString(tx, cy - FS_TINY, f"\u25b8  {comp}")
+        cy -= FS_TINY + 1
         p = Paragraph(detail, P_TINY)
-        _, ph = p.wrapOn(c, inner_w - 8, 9999)
-        if y - ph < cy - tech_h + 2 * mm:
+        _, ph = p.wrapOn(c, TW - 8, 9999)
+        if cy - ph < BODY_BOT + 2 * mm:
             break
-        p.drawOn(c, cx + BOX_PAD + 8, y - ph)
-        y -= ph + 3.5
+        p.drawOn(c, tx + 8, cy - ph)
+        cy -= ph + 3.5
 
     # ═════════════════════════════════════════════════════════════════════════
     #  COLUMN 2 — METHODOLOGY
     # ═════════════════════════════════════════════════════════════════════════
-    cx, cy = COL_X[1], BODY_TOP
+    cx = COL_X[1]
+    tx = cx + TX
+    cy = BODY_TOP
 
-    # ── Box: Methodology Overview ─────────────────────────────────────────────
+    cy = sec_heading(c, tx, cy, TW, "Methodology")
+
     ov_text = (
-        "The simulation employs a <b>multi-agent system</b> architecture in which each "
-        "agent encapsulates an independent household with unique financial circumstances, "
-        "life-stage preferences, and decision-making characteristics. The hybrid "
-        "<b>LLM + algorithm</b> design ensures that decisions are simultaneously "
+        "The simulation employs a <b>multi-agent system (MAS)</b> architecture in "
+        "which each agent encapsulates an independent household with unique financial "
+        "circumstances, life-stage preferences, and decision-making characteristics. "
+        "The hybrid <b>LLM + algorithm</b> design ensures decisions are simultaneously "
         "<i>contextually intelligent</i> (via language model reasoning) and "
         "<i>financially rigorous</i> (via validated economic algorithms). The model is "
-        "calibrated against ONS regional statistics and validated using historical Land "
-        "Registry transaction data spanning 2020\u20132024. "
-        "A <b>Monte Carlo approach</b> (50 independent seeded runs) quantifies output "
-        "uncertainty and supports robust sensitivity analysis."
+        "calibrated against ONS regional statistics and validated using Land Registry "
+        "historical data spanning 2020\u20132024. A <b>Monte Carlo approach</b> "
+        "(50 seeded runs) quantifies output uncertainty and supports sensitivity analysis."
     )
-    ov_h = Paragraph(ov_text, P_SMALL).wrap(inner_w, 9999)[1] + SEC_H + 2 * BOX_PAD + 3
-    rbox(c, cx, cy - ov_h, COL_W, ov_h, fill=BG2, stroke=BD2)
-    y = sec_bar(c, cx, cy, COL_W, "  METHODOLOGY OVERVIEW", fill=C_GREEN)
-    y -= BOX_PAD
-    draw_para(c, ov_text, cx + BOX_PAD, y, inner_w, P_SMALL)
-    cy -= ov_h + BOX_GAP
+    cy = draw_para(c, ov_text, tx, cy, TW, P_SMALL, gap=SEC_GAP)
 
-    # ── Box: Workflow Flowchart ───────────────────────────────────────────────
-    flow_h = 183 * mm
-    rbox(c, cx, cy - flow_h, COL_W, flow_h, fill=BG2, stroke=BD2)
-    y = sec_bar(c, cx, cy, COL_W,
-                "  DATA \u2192 MODEL \u2192 SIMULATION PIPELINE", fill=C_GREEN)
-    y -= BOX_PAD
-    draw_flowchart(c, cx + BOX_PAD / 2, y, COL_W - BOX_PAD,
-                   flow_h - SEC_H - 2 * BOX_PAD)
-    cy -= flow_h + BOX_GAP
+    cy = sec_heading(c, tx, cy, TW,
+                     "Data \u2192 Model \u2192 Simulation Pipeline")
 
-    # ── Box: Agent Architecture & Decision Model ──────────────────────────────
-    remaining2 = cy - BODY_BOT
-    arch_h = remaining2
-    rbox(c, cx, cy - arch_h, COL_W, arch_h, fill=BG2, stroke=BD2)
-    y = sec_bar(c, cx, cy, COL_W,
-                "  AGENT ARCHITECTURE & DECISION MODEL", fill=C_GREEN)
-    y -= BOX_PAD
+    flow_h = 184 * mm
+    draw_flowchart(c, tx, cy, TW, flow_h)
+    cy -= flow_h + SEC_GAP
 
-    y = sub_bar(c, cx + BOX_PAD / 2, y, COL_W - BOX_PAD,
-                "ReAct Decision Loop", fill=BG_SUB2, text_color=C_GREEN)
-    y -= 2
+    cy = sec_heading(c, tx, cy, TW, "Agent Architecture & Decision Model")
+
+    cy = sub_heading(c, tx, cy, TW, "ReAct Decision Loop")
     loop_text = (
         "Each agent runs a <b>Reason + Act (ReAct) cycle</b>: the LLM reviews its "
         "current financial state, invokes specialist domain tools for calculations, "
         "then synthesises a contextually grounded housing decision. This loop "
-        "repeats every annual time-step across the 10-year horizon."
+        "repeats each annual time-step across the 10-year simulation horizon."
     )
-    y = draw_para(c, loop_text, cx + BOX_PAD, y, inner_w, P_SMALL, gap=3)
-
+    cy = draw_para(c, loop_text, tx, cy, TW, P_SMALL, gap=2)
     tools = [
-        "<b>PropertySearchTool</b> \u2014 fuzzy search of Land Registry records by region, type &amp; budget",
-        "<b>MortgageCalculatorTool</b> \u2014 LTV ratios, monthly payments, stress tests at base rate + 3%",
-        "<b>AffordabilityAssessmentTool</b> \u2014 income percentile, deposit readiness, price/income ratio",
-        "<b>FinancialHealthTool</b> \u2014 savings trajectory, debt obligations, monthly disposable income",
+        "<b>PropertySearchTool</b> \u2014 fuzzy search of Land Registry records by "
+        "region, type &amp; budget",
+        "<b>MortgageCalculatorTool</b> \u2014 LTV ratios, monthly payments, "
+        "stress tests (base rate + 3%)",
+        "<b>AffordabilityAssessmentTool</b> \u2014 income percentile, deposit "
+        "readiness, price/income ratio",
+        "<b>FinancialHealthTool</b> \u2014 savings trajectory, debt obligations, "
+        "monthly disposable income",
     ]
-    y = draw_bullets(c, tools, cx + BOX_PAD, y, inner_w, bullet="\u2192", indent=7)
-    y -= 3
+    cy = draw_bullets(c, tools, tx, cy, TW, P_TINY, bullet="\u2192", indent=8)
+    cy -= 3
 
-    y = sub_bar(c, cx + BOX_PAD / 2, y, COL_W - BOX_PAD,
-                "Stochastic Life Events", fill=BG_SUB2, text_color=C_GREEN)
-    y -= 2
+    cy = sub_heading(c, tx, cy, TW, "Stochastic Life Events")
     life_text = (
-        "Each year, agents may experience stochastic life events drawn from "
+        "Each year agents may experience stochastic life events drawn from "
         "<b>age-weighted probability distributions</b> calibrated to ONS Life "
         "Events Survey data, directly influencing financial capacity and housing need."
     )
-    y = draw_para(c, life_text, cx + BOX_PAD, y, inner_w, P_SMALL, gap=3)
-
+    cy = draw_para(c, life_text, tx, cy, TW, P_SMALL, gap=2)
     events = [
-        "Salary increase (15% prob., age 18\u201329) or job promotion (8\u201310%)",
-        "Job loss (2\u20134%), marriage (5\u20138%), birth of child (3\u201310%)",
-        "Divorce (1\u20133%), bereavement, serious illness, debt increase",
+        "Salary increase (15% prob., age 18\u201329); job promotion (8\u201310%)",
+        "Job loss (2\u20134%); marriage (5\u20138%); birth of child (3\u201310%)",
+        "Divorce (1\u20133%); bereavement; serious illness; debt increase",
     ]
-    y = draw_bullets(c, events, cx + BOX_PAD, y, inner_w, P_TINY, bullet="\u2022", indent=7)
-    y -= 3
+    cy = draw_bullets(c, events, tx, cy, TW, P_TINY, bullet="\u2022", indent=8)
+    cy -= 3
 
-    y = sub_bar(c, cx + BOX_PAD / 2, y, COL_W - BOX_PAD,
-                "Calibration & Validation", fill=BG_SUB2, text_color=C_GREEN)
-    y -= 2
+    cy = sub_heading(c, tx, cy, TW, "Calibration & Validation")
     val_items = [
-        "Regional price growth rates sourced directly from ONS UK HPI annual estimates",
+        "Regional price growth rates sourced from ONS UK HPI annual estimates",
         "Agent income distributions matched to HMRC/ONS percentile tables (2022/23)",
-        "Mortgage stress-tested per Bank of England affordability guidelines (+3%)",
-        "10-year backtesting against Land Registry 2014\u20132024 transaction data",
+        "Mortgage stress-tested per Bank of England guidelines (base rate + 3%)",
+        "10-year backtesting against Land Registry 2014\u20132024 transactions",
         "50-run Monte Carlo quantifies output uncertainty (\u03c3 = \u00a312,400)",
     ]
-    draw_bullets(c, val_items, cx + BOX_PAD, y, inner_w, P_TINY, bullet="\u2713", indent=7)
+    draw_bullets(c, val_items, tx, cy, TW, P_TINY, bullet="\u2713", indent=8)
 
     # ═════════════════════════════════════════════════════════════════════════
     #  COLUMN 3 — RESULTS
     # ═════════════════════════════════════════════════════════════════════════
-    cx, cy = COL_X[2], BODY_TOP
+    cx = COL_X[2]
+    tx = cx + TX
+    cy = BODY_TOP
 
-    # ── Box: Quantitative Results ─────────────────────────────────────────────
-    quant_h = 235 * mm
-    rbox(c, cx, cy - quant_h, COL_W, quant_h, fill=BG3, stroke=BD3)
-    y = sec_bar(c, cx, cy, COL_W, "  QUANTITATIVE RESULTS", fill=C_AMBER)
-    y -= BOX_PAD
+    cy = sec_heading(c, tx, cy, TW, "Quantitative Results")
 
-    # Sub: Model accuracy
-    y = sub_bar(c, cx + BOX_PAD / 2, y, COL_W - BOX_PAD,
-                "Model Accuracy vs. Baselines", fill=BG_SUB3, text_color=C_AMBER)
-    y -= 1
+    cy = sub_heading(c, tx, cy, TW, "Model Accuracy vs. Baselines")
     fig_acc = chart_model_accuracy()
-    acc_h = 45 * mm
-    y = embed_fig(c, fig_acc, cx + BOX_PAD / 2, y, COL_W - BOX_PAD, acc_h)
-    y -= 3
+    cy = embed_fig(c, fig_acc, tx, cy, TW, 47 * mm)
+    cy -= 3
 
-    # KPI stat boxes — row 1
+    # KPI row 1
     kpis_1 = [
-        ("R\u00b2 = 0.87", "National ABM\naccuracy"),
-        ("RMSE £18.5k", "Price\nprediction error"),
+        ("R\u00b2 = 0.87", "National\nmodel accuracy"),
+        ("RMSE \u00a318.5k",    "Price\nprediction error"),
         ("R\u00b2 = 0.91", "London\nbest-fit region"),
     ]
-    kpi_w = (inner_w - 2 * 2) / 3
-    kpi_h = 13 * mm
+    kw = (TW - 2 * 2) / 3
+    kh = 13 * mm
     for i, (val, lbl) in enumerate(kpis_1):
-        stat_box(c, cx + BOX_PAD + i * (kpi_w + 2), y,
-                 kpi_w, kpi_h, val, lbl,
-                 val_color=C_AMBER, bg=BG_SUB3, border=BD3)
-    y -= kpi_h + 3
+        callout_box(c, tx + i * (kw + 2), cy, kw, kh, val, lbl)
+    cy -= kh + 4
 
-    # Sub: Regional price trajectories
-    y = sub_bar(c, cx + BOX_PAD / 2, y, COL_W - BOX_PAD,
-                "Regional Price Trajectories (2024\u20132034)", fill=BG_SUB3, text_color=C_AMBER)
-    y -= 1
+    cy = sub_heading(c, tx, cy, TW,
+                     "Regional Price Trajectories (2024\u20132034)")
     fig_traj = chart_price_trajectories()
-    traj_h = 55 * mm
-    y = embed_fig(c, fig_traj, cx + BOX_PAD / 2, y, COL_W - BOX_PAD, traj_h)
-    y -= 3
+    cy = embed_fig(c, fig_traj, tx, cy, TW, 57 * mm)
+    cy -= 3
 
-    # Sub: Affordability ratios
-    y = sub_bar(c, cx + BOX_PAD / 2, y, COL_W - BOX_PAD,
-                "Price-to-Income Ratios by Region", fill=BG_SUB3, text_color=C_AMBER)
-    y -= 1
+    cy = sub_heading(c, tx, cy, TW, "Price-to-Income Ratios by Region")
     fig_aff = chart_affordability()
-    aff_h = 48 * mm
-    y = embed_fig(c, fig_aff, cx + BOX_PAD / 2, y, COL_W - BOX_PAD, aff_h)
-    y -= 4
+    cy = embed_fig(c, fig_aff, tx, cy, TW, 50 * mm)
+    cy -= 3
 
-    # KPI stat boxes — row 2
+    # KPI row 2
     kpis_2 = [
-        ("67.4%",    "Homeownership\nrate after 10 yrs"),
-        ("34.2 yrs", "Median FTB age\n(sim vs 33 actual)"),
-        ("18.3%",    "Avg deposit as\n% property value"),
-        ("94.3%",    "Monte Carlo\nconvergence rate"),
+        ("67.4%",    "Homeownership\nrate (10yr)"),
+        ("34.2 yrs", "Median FTB age\nvs 33 actual"),
+        ("18.3%",    "Avg deposit\n% property"),
+        ("94.3%",    "Monte Carlo\nconvergence"),
     ]
-    kpi_w2 = (inner_w - 3 * 2) / 4
+    kw2 = (TW - 3 * 2) / 4
     for i, (val, lbl) in enumerate(kpis_2):
-        stat_box(c, cx + BOX_PAD + i * (kpi_w2 + 2), y,
-                 kpi_w2, kpi_h, val, lbl,
-                 val_color=C_RED, bg=HexColor("#fff0d0"), border=BD3)
-    y -= kpi_h
+        callout_box(c, tx + i * (kw2 + 2), cy, kw2, kh, val, lbl,
+                    val_color=UOR_RED)
+    cy -= kh + SEC_GAP
 
-    cy -= quant_h + BOX_GAP
+    cy = sec_heading(c, tx, cy, TW, "Qualitative Results")
 
-    # ── Box: Qualitative Results ──────────────────────────────────────────────
-    qual_h = 130 * mm
-    rbox(c, cx, cy - qual_h, COL_W, qual_h, fill=BG3, stroke=BD3)
-    y = sec_bar(c, cx, cy, COL_W, "  QUALITATIVE RESULTS", fill=C_AMBER)
-    y -= BOX_PAD
-
-    # Emergent behaviours
-    y = sub_bar(c, cx + BOX_PAD / 2, y, COL_W - BOX_PAD,
-                "Emergent Market Behaviours", fill=BG_SUB3, text_color=C_AMBER)
-    y -= 2
+    cy = sub_heading(c, tx, cy, TW, "Emergent Market Behaviours")
     behaviours = [
-        ("<b>Realistic wait-and-save behaviour:</b> agents defer purchase during high "
-         "interest-rate periods, mirroring the observed post-2022 market slowdown"),
-        ("<b>Price-band clustering:</b> agents with similar incomes concentrate demand "
-         "in narrow price bands, producing emergent market segmentation"),
-        ("<b>Life-event cascades:</b> marriage and promotion trigger housing upgrades; "
-         "job loss extends saving periods by a mean of <b>+1.8 years</b>"),
+        ("<b>Realistic wait-and-save behaviour:</b> agents defer purchase during "
+         "high interest-rate periods, mirroring the observed post-2022 market "
+         "slowdown"),
+        ("<b>Price-band clustering:</b> agents with similar incomes concentrate "
+         "demand in narrow price bands, producing emergent market segmentation"),
+        ("<b>Life-event cascades:</b> marriage and promotion trigger housing "
+         "upgrades; job loss extends saving periods by a mean <b>+1.8 years</b>"),
     ]
-    y = draw_bullets(c, behaviours, cx + BOX_PAD, y, inner_w,
-                     P_TINY, bullet="\u25c6", indent=8)
-    y -= 3
+    cy = draw_bullets(c, behaviours, tx, cy, TW, P_TINY, bullet="\u25c6",
+                      indent=8)
+    cy -= 3
 
-    # Regional insights
-    y = sub_bar(c, cx + BOX_PAD / 2, y, COL_W - BOX_PAD,
-                "Regional Market Insights", fill=BG_SUB3, text_color=C_AMBER)
-    y -= 2
+    cy = sub_heading(c, tx, cy, TW, "Regional Market Insights")
     regional = [
-        "London agents delay first purchase by <b>2\u20134 years</b> vs Northern England equivalents",
-        "Northern regions show higher transaction velocity but greater price volatility (\u03c3 = \u00a312.4k)",
-        "Rural simulations reveal sparse-transaction price effects not captured by national models",
+        "London agents delay first purchase by <b>2\u20134 years</b> vs Northern "
+        "England equivalents",
+        "Northern regions show higher transaction velocity but greater price "
+        "volatility (\u03c3 = \u00a312.4k)",
+        "Rural simulation reveals sparse-transaction effects absent from "
+        "national-level models",
     ]
-    y = draw_bullets(c, regional, cx + BOX_PAD, y, inner_w,
-                     P_TINY, bullet="\u25b6", indent=8)
-    y -= 3
+    cy = draw_bullets(c, regional, tx, cy, TW, P_TINY, bullet="\u25b6",
+                      indent=8)
+    cy -= 3
 
-    # Policy testing
-    y = sub_bar(c, cx + BOX_PAD / 2, y, COL_W - BOX_PAD,
-                "Policy Scenario Testing", fill=BG_SUB3, text_color=C_AMBER)
-    y -= 2
+    cy = sub_heading(c, tx, cy, TW, "Policy Scenario Testing")
     policy = [
-        "<b>Help-to-Buy:</b> +12% homeownership rate, but +8% price inflation in eligible bands",
-        "<b>+2% interest rate shock:</b> \u221223% transaction volume; saving periods +1.8 yrs",
-        "<b>Shared ownership:</b> most effective for households earning \u00a325k\u2013\u00a340k",
-        "<b>Stamp duty exemption:</b> accelerates FTB market entry by a mean 8.3 months",
+        "<b>Help-to-Buy:</b> +12% homeownership rate, +8% price inflation in "
+        "eligible bands",
+        "<b>+2% interest rate shock:</b> \u221223% transaction volume; saving "
+        "periods +1.8 yrs",
+        "<b>Shared ownership:</b> most effective for households earning "
+        "\u00a325k\u2013\u00a340k",
+        "<b>Stamp duty exemption:</b> accelerates FTB market entry by 8.3 months",
     ]
-    draw_bullets(c, policy, cx + BOX_PAD, y, inner_w,
-                 P_TINY, bullet="\u2605", indent=8)
+    cy = draw_bullets(c, policy, tx, cy, TW, P_TINY, bullet="\u2605", indent=8)
+    cy -= SEC_GAP
 
-    cy -= qual_h + BOX_GAP
+    if cy > BODY_BOT + 10 * mm:
+        cy = sec_heading(c, tx, cy, TW, "Conclusions & Future Work")
+        conc_text = (
+            "This research demonstrates that <b>LLM-driven agent-based modelling</b> "
+            "can reproduce realistic UK housing market dynamics with high fidelity "
+            "(R\u00b2 = 0.87). The hybrid approach \u2014 combining AI contextual "
+            "reasoning with rigorous financial algorithms \u2014 provides a powerful "
+            "new framework for housing policy simulation, capturing emergent "
+            "macro-market effects absent from traditional econometric models."
+        )
+        cy = draw_para(c, conc_text, tx, cy, TW, P_SMALL, gap=3)
+        future = [
+            "Add seller and lender agents for full market-side modelling",
+            "Incorporate spatial neighbourhood &amp; commuter-belt effects",
+            "Model new-build supply-side construction pipeline dynamics",
+            "Extend to Scottish, Welsh &amp; Northern Irish housing markets",
+            "Real-time API integration with Rightmove / Zoopla live data",
+        ]
+        draw_bullets(c, future, tx, cy, TW, P_TINY, bullet="\u2192", indent=8)
 
-    # ── Box: Conclusions & Future Work ────────────────────────────────────────
-    remaining3 = cy - BODY_BOT
-    conc_h = remaining3
-    rbox(c, cx, cy - conc_h, COL_W, conc_h, fill=BG3, stroke=BD3)
-    y = sec_bar(c, cx, cy, COL_W,
-                "  CONCLUSIONS & FUTURE WORK", fill=C_RED)
-    y -= BOX_PAD
-
-    conc_text = (
-        "This research demonstrates that <b>LLM-driven agent-based modelling</b> can "
-        "reproduce realistic UK housing market dynamics with high fidelity (R\u00b2 = 0.87). "
-        "The hybrid approach \u2014 combining AI contextual reasoning with rigorous "
-        "financial algorithms \u2014 provides a powerful new framework for housing policy "
-        "simulation, capable of evaluating interventions at the individual household level "
-        "and capturing emergent macro-market effects absent from traditional models."
-    )
-    y = draw_para(c, conc_text, cx + BOX_PAD, y, inner_w, P_SMALL, gap=4)
-
-    future = [
-        "Add seller and lender agents for full market-side modelling",
-        "Incorporate spatial neighbourhood interaction and commuter effects",
-        "Model new-build supply-side construction pipeline dynamics",
-        "Extend coverage to Scottish, Welsh &amp; Northern Irish markets",
-        "Real-time API integration with Rightmove / Zoopla live data",
-    ]
-    draw_bullets(c, future, cx + BOX_PAD, y, inner_w,
-                 P_TINY, bullet="\u2192", indent=7)
-
-    # ── Save ──────────────────────────────────────────────────────────────────
     c.save()
     print(f"Poster saved \u2192 {output_path}")
 
 
-# ── Entry point ───────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     os.makedirs("poster", exist_ok=True)
     build_poster("poster/poster.pdf")
