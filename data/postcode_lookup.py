@@ -41,20 +41,41 @@ class PostcodeLookup:
         self.data_dir = data_dir
         self._postcode_df = None
         self._dwelling_df = None
+        self._ruc_df = None
         self._load_data()
 
+    # Maps ONS RUC11CD codes to the three location labels used in housing preferences
+    RUC_TO_LOCATION = {
+        "A1": "city",       # Urban major conurbation
+        "B1": "city",       # Urban minor conurbation
+        "C1": "suburban",   # Urban city and town
+        "C2": "suburban",   # Urban city and town in a sparse setting
+        "D1": "suburban",   # Rural town and fringe
+        "D2": "countryside", # Rural town and fringe in a sparse setting
+        "E1": "countryside", # Rural village and dispersed
+        "E2": "countryside", # Rural village and dispersed in a sparse setting
+    }
+
     def _load_data(self):
-        """Load the postcode and dwelling age data from CSV files."""
+        """Load the postcode, dwelling age, and Rural-Urban Classification data."""
         # Load postcode to geography mapping
         pcd_path = os.path.join(self.data_dir, "PCD_OA21_LSOA21_MSOA21_LAD_NOV24_UK_LU.csv")
-        self._postcode_df = pd.read_csv(pcd_path, dtype=str)  # Read as strings to preserve codes
-        self._postcode_df['pcds'] = self._postcode_df['pcds'].str.upper().str.replace(' ', '')  # Normalize postcodes
+        self._postcode_df = pd.read_csv(pcd_path, dtype=str, encoding="latin-1")
+        self._postcode_df['pcds'] = self._postcode_df['pcds'].str.upper().str.replace(' ', '')
         self._postcode_df.set_index('pcds', inplace=True)
 
         # Load LSOA to dwelling age mapping
         dwelling_path = os.path.join(self.data_dir, "dwellingages.csv")
         self._dwelling_df = pd.read_csv(dwelling_path, dtype=str)
         self._dwelling_df.set_index('lsoacode', inplace=True)
+
+        # Load ONS Rural-Urban Classification (2011) — LSOA11CD → RUC11CD
+        ruc_path = os.path.join(
+            self.data_dir,
+            "Rural_Urban_Classification_(2011)_of_Lower_Layer_Super_Output_Areas_in_England_and_Wales.csv"
+        )
+        ruc_df = pd.read_csv(ruc_path, usecols=["LSOA11CD", "RUC11CD"], dtype=str)
+        self._ruc_df = ruc_df.set_index("LSOA11CD")
 
     def _normalize_postcode(self, postcode: str) -> str:
         """
@@ -92,6 +113,30 @@ class PostcodeLookup:
         """
         info = self.get_postcode_info(postcode)
         return info['LSOA21'] if info else None
+
+    def get_rural_urban_class(self, postcode: str) -> Optional[str]:
+        """
+        Return the ONS Rural-Urban Classification code (RUC11CD) for a postcode.
+        Uses the 2011 LSOA code which has ~95% overlap with 2021 boundaries.
+
+        :param postcode: Full UK postcode.
+        :return: RUC11CD string (e.g. 'A1', 'D1') or None if not found.
+        """
+        lsoa = self.get_lsoa(postcode)
+        if lsoa and lsoa in self._ruc_df.index:
+            return self._ruc_df.loc[lsoa, "RUC11CD"]
+        return None
+
+    def get_location_type(self, postcode: str) -> Optional[str]:
+        """
+        Return a simplified location type ('city', 'suburban', 'countryside')
+        derived from the ONS Rural-Urban Classification for a postcode.
+
+        :param postcode: Full UK postcode.
+        :return: 'city', 'suburban', 'countryside', or None if not found.
+        """
+        ruc = self.get_rural_urban_class(postcode)
+        return self.RUC_TO_LOCATION.get(ruc) if ruc else None
 
     def get_age_band(self, postcode: str) -> Optional[str]:
         """

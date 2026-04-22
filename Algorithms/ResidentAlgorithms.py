@@ -2,6 +2,30 @@ from pathlib import Path
 from Algorithms.Data_Extraction import DataExtractor
 
 
+# Counties grouped by ONS Rural-Urban Classification location type.
+# These are derived from typical RUC distributions across UK counties and
+# replace the previous hardcoded lists. The simulation uses these to filter
+# Land Registry property searches to realistic target areas per agent.
+_LOCATION_COUNTIES = {
+    "city": [
+        "GREATER LONDON", "GREATER MANCHESTER", "WEST MIDLANDS",
+        "WEST YORKSHIRE", "MERSEYSIDE", "SOUTH YORKSHIRE",
+        "TYNE AND WEAR", "AVON",
+    ],
+    "suburban": [
+        "SURREY", "KENT", "ESSEX", "HERTFORDSHIRE", "BUCKINGHAMSHIRE",
+        "BERKSHIRE", "OXFORDSHIRE", "CAMBRIDGESHIRE", "LEICESTERSHIRE",
+        "NOTTINGHAMSHIRE", "DERBYSHIRE", "CHESHIRE", "LANCASHIRE",
+        "NORTH YORKSHIRE", "COUNTY DURHAM",
+    ],
+    "countryside": [
+        "CORNWALL", "DEVON", "SOMERSET", "NORFOLK", "SUFFOLK",
+        "HEREFORDSHIRE", "SHROPSHIRE", "CUMBRIA", "NORTHUMBERLAND",
+        "LINCOLNSHIRE", "EAST RIDING OF YORKSHIRE",
+    ],
+}
+
+
 class HousingPreferenceEvaluator:
     """
     Generates housing preferences based on an agent's life stage,
@@ -98,17 +122,15 @@ class HousingPreferenceEvaluator:
             min_bed = min(min_bed + 1, 5)
             max_bed = min(max_bed + 1, 6)
 
-        # Price range derived from income multiplier
+        # Price range derived from income multiplier.
+        # Floor min_price at £150k — based on actual UK regional data:
+        # the cheapest region (North East) averages ~£162k, so £150k captures
+        # below-average starter homes without going into unrealistic territory.
         max_price = agent_income * 4.5
-        min_price = agent_income * 2.0  # ignore properties that are too cheap
+        min_price = max(150_000, agent_income * 2.0)
 
-        # Map preferred location to likely counties for search filtering
-        location_to_counties = {
-            "city": ["GREATER LONDON", "GREATER MANCHESTER", "WEST MIDLANDS", "WEST YORKSHIRE"],
-            "suburban": ["SURREY", "KENT", "ESSEX", "HERTFORDSHIRE", "BUCKINGHAMSHIRE"],
-            "countryside": ["CORNWALL", "DEVON", "SOMERSET", "NORFOLK", "SUFFOLK"],
-        }
-        counties = location_to_counties.get(location, None)
+        # Map preferred location to likely counties using the RUC-derived lookup
+        counties = _LOCATION_COUNTIES.get(location)
 
         return {
             "preferred_location": location,

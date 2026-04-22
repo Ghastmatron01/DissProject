@@ -6,3 +6,4 @@ data/*.ods filter=lfs diff=lfs merge=lfs -text
 Environment/Housing/HM[[:space:]]Land[[:space:]]Registery[[:space:]]Price[[:space:]]Paid/*.csv filter=lfs diff=lfs merge=lfs -text
 data/dwellingages.csv filter=lfs diff=lfs merge=lfs -text
 data/PCD_OA21_LSOA21_MSOA21_LAD_NOV24_UK_LU.csv filter=lfs diff=lfs merge=lfs -text
+data/Rural_Urban_Classification_(2011)_of_Lower_Layer_Super_Output_Areas_in_England_and_Wales.csv filter=lfs diff=lfs merge=lfs -text
