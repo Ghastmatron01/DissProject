@@ -70,7 +70,8 @@ class ResidentAgent:
                  housing_market=None, banks_list=None, family_size=1,
                  monthly_rent=800, student_loan_plans=None,
                  student_loan_balance=0, student_loan_graduation_year=None, savings_rate=0.5,
-                 first_time_buyer = True):
+                 first_time_buyer=True, living_situation="solo", use_llm=True,
+                 target_deposit_pct=0.10):
         """
         Set up the resident agent with identity, finances, environment
         references, algorithm instances, and the LLM agent.
@@ -104,12 +105,31 @@ class ResidentAgent:
         # -- Financial system --
         self.gross_salary = gross_salary
         self.expense_manager = expense_manager
-        self.monthly_rent = monthly_rent  # Rent charged when not a homeowner
+        # _base_rent is the full market rent for the agent's bedroom need.
+        # The actual rent charged depends on living_situation (see effective_monthly_rent).
+        self._base_rent = monthly_rent
         self.savings_rate = max(0.0, min(1.0, savings_rate))  # Clamp between 0 and 1
         self.student_loan_plans = student_loan_plans or []
         self.student_loan_balance = student_loan_balance  # Total owed (for info)
         self.student_loan_graduation_year = student_loan_graduation_year
         self.simulation_year = 2025  # Updated by time_step each year
+
+        # -- Living situation --
+        # "with_parents" : living at home, paying ~£200/month board
+        # "shared"       : renting with a placeholder flatmate, paying 50% of 1-bed rate
+        # "solo"         : renting alone at full _base_rent
+        # "homeowner"    : mortgage (living_situation is set automatically on purchase)
+        self.living_situation = living_situation
+        # Track consecutive years in deficit — used to trigger automatic downgrade
+        self._deficit_years = 0
+
+        # -- LLM flag --
+        # When False, all decisions use the deterministic rule-based fallback.
+        # Set to False for bulk/batch runs to avoid Ollama calls entirely.
+        self.use_llm = use_llm
+        # Minimum deposit fraction the agent is willing to put down.
+        # Agents avoid 5% (high-risk, expensive products) — 10% is the floor.
+        self.target_deposit_pct = max(0.10, float(target_deposit_pct))
 
         # Use the provided calculator or create one from the salary
         if financial_calculator is not None:
@@ -157,8 +177,9 @@ class ResidentAgent:
         # Run the initial financial calculation so net_salary etc. are populated
         self.update_financial_state()
 
-        # Build the LLM agent with tools and system prompt
-        self._setup_llm_agent()
+        # Build the LLM agent with tools and system prompt (skip in non-LLM mode)
+        if self.use_llm:
+            self._setup_llm_agent()
 
     # --------------------------------------------------------------------
     #  INTERNAL HELPERS
@@ -380,6 +401,102 @@ class ResidentAgent:
         )
 
     # --------------------------------------------------------------------
+    #  LIVING SITUATION
+    # --------------------------------------------------------------------
+
+    # Board paid when living with parents (contribution to household costs)
+    PARENTS_BOARD = 200
+
+    @property
+    def monthly_rent(self):
+        """Effective monthly rent based on current living situation."""
+        return self.effective_monthly_rent
+
+    @monthly_rent.setter
+    def monthly_rent(self, value):
+        """Allow external code to update the base rent directly."""
+        self._base_rent = value
+
+    @property
+    def effective_monthly_rent(self):
+        """
+        Derive the actual rent charged from living_situation:
+          with_parents -> £200/month board
+          shared       -> 50% of the standard 1-bed rate (£425 at £850 base)
+          solo         -> full _base_rent (bedroom-appropriate)
+          homeowner    -> 0 (mortgage payment handled separately)
+        """
+        if self.active_mortgage is not None or self.living_situation == "homeowner":
+            return 0
+        if self.living_situation == "with_parents":
+            return self.PARENTS_BOARD
+        if self.living_situation == "shared":
+            # Split the 1-bed rate (first entry in MONTHLY_RENT-style lookup).
+            # Use _base_rent capped at the 1-bed rate to avoid penalising agents
+            # who originally needed a bigger flat but are now in shared housing.
+            one_bed_rate = 850  # matches MONTHLY_RENT[1] in synthetic_agents.py
+            return min(self._base_rent, one_bed_rate) * 0.5
+        # "solo" or anything else
+        return self._base_rent
+
+    def _evaluate_living_situation(self):
+        """
+        Annually reassess whether the agent can afford their current living
+        situation and automatically move them if not.
+
+        Rules:
+          - Homeowners are never moved (mortgage locked in).
+          - Partners always stay in "solo" (they split rent already).
+          - If running a deficit for 2+ consecutive years → downgrade one step:
+              solo → shared → with_parents
+          - If surplus is comfortable (>£200/month) and situation is not solo
+            and age >= 23 → upgrade one step toward solo.
+
+        :return: The transition event string if a move happened, else None.
+        """
+        # Homeowners don't rent — nothing to evaluate
+        if self.active_mortgage is not None or self.living_situation == "homeowner":
+            return None
+
+        # Partnered agents already have rent split — keep them at solo
+        if self.is_married and self.living_situation != "solo":
+            old = self.living_situation
+            self.living_situation = "solo"
+            return f"moved_to_solo_after_partnering (was {old})"
+
+        current_available = self.monthly_available_funds
+
+        # --- Downgrade path: struggling financially ---
+        if current_available < -50:
+            self._deficit_years += 1
+        else:
+            self._deficit_years = max(0, self._deficit_years - 1)
+
+        if self._deficit_years >= 2:
+            if self.living_situation == "solo":
+                self.living_situation = "shared"
+                self._deficit_years = 0
+                return "moved_to_shared_housing"
+            elif self.living_situation == "shared":
+                self.living_situation = "with_parents"
+                self._deficit_years = 0
+                return "moved_back_to_parents"
+
+        # --- Upgrade path: doing well, ready to move out / live alone ---
+        if current_available > 200 and self.living_situation != "solo":
+            if self.living_situation == "with_parents" and self.age >= 21:
+                self.living_situation = "shared"
+                return "moved_out_to_shared_housing"
+            elif self.living_situation == "shared" and self.age >= 23:
+                # Check they can ACTUALLY afford solo rent before moving
+                solo_cost = self._base_rent - self.effective_monthly_rent
+                if current_available - solo_cost > 50:
+                    self.living_situation = "solo"
+                    return "moved_to_solo_renting"
+
+        return None
+
+    # --------------------------------------------------------------------
     #  FINANCIAL MANAGEMENT
     # --------------------------------------------------------------------
 
@@ -430,37 +547,72 @@ class ResidentAgent:
           2. Save savings_rate % of the remaining spare cash
           3. The rest is untracked lifestyle spending (gone)
 
-        If available funds are negative the agent is spending more
-        than they earn, so savings are drained instead.
+        Spare cash = monthly_available_funds * 12.
+        monthly_available_funds is the amount LEFT each month AFTER
+        net pay minus ALL expenses, rent/mortgage, and debt repayments.
+        It is NOT net salary - it is the genuinely disposable surplus.
+
+        If the agent is in the red (negative spare cash), savings are
+        drained first. If savings hit zero and they are still short,
+        the shortfall is added as an overdraft debt at 19.9% APR so
+        the agent faces a real financial consequence.
 
         :return: Dict with goal_contributions, general_saved,
-                 lifestyle_spent, and total_change.
+                 lifestyle_spent, total_change, and interest_earned.
         """
-        available = self.monthly_available_funds
-        annual_spare = available * 12
+        # monthly_available_funds = net_monthly - expenses - rent/mortgage
+        # Multiply by 12 to get the annual surplus (or deficit)
+        available = self.monthly_available_funds   # monthly spare cash
+        annual_spare = available * 12              # annualised
 
-        # If the agent is in the red, drain savings and skip goals
+        # -- Deficit path: agent is spending more than they earn --
         if annual_spare <= 0:
-            self.financial_state["savings"] += annual_spare
-            if self.financial_state["savings"] < 0:
+            deficit = abs(annual_spare)
+
+            if self.financial_state["savings"] >= deficit:
+                # Drain savings to cover the shortfall
+                self.financial_state["savings"] -= deficit
+            else:
+                # Savings are wiped out; the remainder becomes overdraft debt
+                remaining_deficit = deficit - self.financial_state["savings"]
                 self.financial_state["savings"] = 0
+
+                # Add an overdraft entry to DebtManager so interest accrues
+                overdraft_label = "overdraft"
+                if overdraft_label in self.debt_manager.debts:
+                    # Increase existing overdraft balance
+                    self.debt_manager.debts[overdraft_label]["balance"] += remaining_deficit
+                else:
+                    # Create a new overdraft debt at 19.9% APR
+                    self.debt_manager.add_debt(
+                        overdraft_label,
+                        balance=remaining_deficit,
+                        apr=0.199,
+                        min_payment=max(25, remaining_deficit * 0.02),
+                    )
+
             return {
                 "goal_contributions": 0,
                 "general_saved": 0,
                 "lifestyle_spent": 0,
-                "total_change": annual_spare,
+                "total_change": -deficit,
+                "interest_earned": 0,
             }
 
-        # Step 1: Pay savings goal contributions (capped at spare cash)
+        # -- Surplus path: agent has money left over --
+
+        # Step 1: Pay savings goal contributions first (capped at spare cash)
         goal_contributions = 0
         if self.savings_manager.has_goals():
             goal_contributions = self.savings_manager.contribute_annual()
-            # Don't let goal contributions exceed what we actually have
+            # Do not let goal contributions exceed what is actually available
             goal_contributions = min(goal_contributions, annual_spare)
 
         remaining = annual_spare - goal_contributions
 
-        # Step 2: Save savings_rate % of what is left over
+        # Step 2: Save savings_rate % of what is left over.
+        # savings_rate is the fraction of SPARE CASH (after goals) that goes
+        # to savings.  E.g. 0.20 = save 20 pence of every spare pound.
         general_saved = remaining * self.savings_rate
 
         # Step 3: The rest is lifestyle spending (not tracked)
@@ -470,8 +622,9 @@ class ResidentAgent:
         total_saved = goal_contributions + general_saved
         self.financial_state["savings"] += total_saved
 
-        # Apply annual interest on savings balance (on the pre-existing balance, not including this year's contributions)
-        savings_interest_rate = 0.045  # 4.5% easy-access savings rate
+        # Apply annual interest on the PRE-EXISTING balance only
+        # (interest is earned on money that was there at the start of the year)
+        savings_interest_rate = 0.035  # 3.5% easy-access savings rate (2024/25)
         pre_existing_balance = self.financial_state["savings"] - total_saved
         interest = max(0, pre_existing_balance) * savings_interest_rate
         self.financial_state["savings"] += interest
@@ -481,7 +634,9 @@ class ResidentAgent:
             "general_saved": round(general_saved, 2),
             "lifestyle_spent": round(lifestyle_spent, 2),
             "total_change": round(total_saved, 2),
+            "interest_earned": round(interest, 2),
         }
+
 
     def accumulate_monthly_savings(self):
         """
@@ -490,25 +645,48 @@ class ResidentAgent:
           2. Save savings_rate % of the remaining spare cash
           3. The rest is untracked lifestyle spending (gone)
 
-        If available funds are negative the agent is spending more
-        than they earn, so savings are drained instead.
+        Spare cash = monthly_available_funds (net monthly AFTER all
+        expenses, rent/mortgage, and debt repayments).
+
+        If the agent is in the red, savings are drained first. If savings
+        reach zero, the remaining shortfall becomes overdraft debt.
 
         :return: Dict with goal_contributions, general_saved,
-                 lifestyle_spent, and total_change.
+                 lifestyle_spent, total_change, and interest_earned.
         """
-        available = self.monthly_available_funds
+        available = self.monthly_available_funds  # monthly spare cash
 
-        # If in the red, drain savings and skip goals
+        # -- Deficit path --
         if available <= 0:
-            self.financial_state["savings"] += available
-            if self.financial_state["savings"] < 0:
+            deficit = abs(available)
+
+            if self.financial_state["savings"] >= deficit:
+                self.financial_state["savings"] -= deficit
+            else:
+                remaining_deficit = deficit - self.financial_state["savings"]
                 self.financial_state["savings"] = 0
+
+                # Add to overdraft debt
+                overdraft_label = "overdraft"
+                if overdraft_label in self.debt_manager.debts:
+                    self.debt_manager.debts[overdraft_label]["balance"] += remaining_deficit
+                else:
+                    self.debt_manager.add_debt(
+                        overdraft_label,
+                        balance=remaining_deficit,
+                        apr=0.199,
+                        min_payment=max(25, remaining_deficit * 0.02),
+                    )
+
             return {
                 "goal_contributions": 0,
                 "general_saved": 0,
                 "lifestyle_spent": 0,
-                "total_change": round(available, 2),
+                "total_change": round(-deficit, 2),
+                "interest_earned": 0,
             }
+
+        # -- Surplus path --
 
         # Step 1: Pay savings goal contributions (1 month, capped at spare cash)
         goal_contributions = 0
@@ -529,7 +707,7 @@ class ResidentAgent:
         self.financial_state["savings"] += total_saved
 
         # Apply monthly interest on the pre-existing savings balance
-        savings_annual_rate = 0.045  # 4.5% easy-access savings rate
+        savings_annual_rate = 0.035   # 3.5% easy-access savings rate (2024/25)
         monthly_rate = savings_annual_rate / 12
         pre_existing_balance = self.financial_state["savings"] - total_saved
         interest = max(0, pre_existing_balance) * monthly_rate
@@ -540,6 +718,7 @@ class ResidentAgent:
             "general_saved": round(general_saved, 2),
             "lifestyle_spent": round(lifestyle_spent, 2),
             "total_change": round(total_saved, 2),
+            "interest_earned": round(interest, 2),
         }
 
     def get_monthly_financial_summary(self):
@@ -785,14 +964,13 @@ class ResidentAgent:
         max_price = self.housing_preferences.get("max_price", self.gross_salary * 4.5)
 
         # What is the cheapest property the agent could consider?
-        min_price = self.housing_preferences.get("min_price", self.gross_salary * 2.0)
+        min_price = max(150_000, self.housing_preferences.get("min_price", self.gross_salary * 2.0))
 
-        # Check deposit readiness against the cheapest viable price
-        # FTB products now allow 5% deposit, standard products need 15%
-        deposit_needed_ftb = min_price * 0.05
-        deposit_needed_std = min_price * 0.15
-        has_ftb_deposit = savings >= deposit_needed_ftb
-        has_std_deposit = savings >= deposit_needed_std
+        # Check deposit readiness against the cheapest viable price.
+        # Agents avoid 5% deposits (expensive, risky) — use their target (min 10%).
+        min_deposit_pct = self.target_deposit_pct  # already clamped to >= 0.10
+        deposit_needed = min_price * min_deposit_pct
+        has_target_deposit = savings >= deposit_needed
 
         # Also check the income multiple: loan must be ≤ 4.5× salary
         max_borrowable = self.gross_salary * 4.5
@@ -801,23 +979,34 @@ class ResidentAgent:
 
         # Also need enough left over after deposit + transaction costs (~£4k + SDLT)
         estimated_costs = savings * 0.05 + 4_000  # rough upfront costs
-        can_cover_costs = savings > deposit_needed_ftb + estimated_costs * 0.5
+        can_cover_costs = savings > deposit_needed + estimated_costs
 
-        if (has_ftb_deposit or has_std_deposit) and income_ok and self.monthly_available_funds > 0:
+        if has_target_deposit and income_ok and can_cover_costs and self.monthly_available_funds > 0:
             return "BUY"
-        elif savings > deposit_needed_ftb * 0.4:
+        elif savings > deposit_needed * 0.4:
             return "SAVE_FOR_DEPOSIT"
         else:
             return "SAVE_FOR_DEPOSIT"
 
     def make_housing_decision(self):
         """
-        Refresh the LLM agent with the latest state, ask it to make a
-        housing decision, and parse the response. Also captures the full
-        tool trace so callers can display what the AI did.
+        Ask the LLM (or rule-based fallback) to make a housing decision.
 
-        :return: Dict with decision, reasoning, timeline, raw_response, and tool_trace.
+        When use_llm=False the deterministic rule-based logic is used directly,
+        making bulk/batch runs near-instant with no Ollama calls.
+
+        :return: Dict with decision, reasoning, timeline, raw_response, tool_trace.
         """
+        if not self.use_llm:
+            decision_str = self._deterministic_housing_decision()
+            return {
+                "decision": decision_str,
+                "reasoning": "rule-based (LLM disabled)",
+                "timeline": "",
+                "raw_response": "",
+                "tool_trace": [],
+            }
+
         # Rebuild the agent so the system prompt reflects current finances
         self._setup_llm_agent()
 
@@ -858,41 +1047,71 @@ class ResidentAgent:
         """
         savings = self.financial_state["savings"]
         net_monthly = self.financial_state["net_salary"] / 12
-        expenses = self.financial_state["total_expenses_monthly"]
+        # After buying the agent no longer pays rent, so subtract current rent
+        # from expenses when evaluating post-purchase affordability.
+        current_rent = self.monthly_rent if self.mortgage_status != "active_mortgage" else 0
+        expenses = max(0, self.financial_state["total_expenses_monthly"] - current_rent)
 
         # Reserve funds for transaction costs (SDLT + solicitor + moving)
         # so the agent doesn't go deeply negative after buying.
         transaction_reserve = 5_000
         deposit = max(0, savings - transaction_reserve)
 
-        # Build a list of candidate prices to try (highest to lowest).
-        # Start at max_price, then try the price the deposit actually
-        # supports at 15% and 20% deposit thresholds, then min_price.
-        min_price = self.housing_preferences.get("min_price", self.gross_salary * 2.0)
-        candidate_prices = set()
-        candidate_prices.add(round(max_property_price, -3))
+        min_price = max(150_000, self.housing_preferences.get("min_price", self.gross_salary * 2.0))
 
-        # Price the deposit supports at common deposit percentages
-        for pct in (0.05, 0.10, 0.15, 0.20, 0.25):
-            if pct > 0:
-                price_at_pct = deposit / pct
-                # Only consider if within the agent's budget range
-                if min_price <= price_at_pct <= max_property_price:
-                    candidate_prices.add(round(price_at_pct, -3))
+        # ------------------------------------------------------------------
+        # Build candidate list from real market properties where possible.
+        # Agents browse a limited shortlist (PROPERTY_SEARCH_SAMPLE) — they
+        # don't have access to every listing in the country at once.
+        # ------------------------------------------------------------------
+        sampled_houses = []
+        if self.housing_market is not None and self.housing_market.houses:
+            preferred_types = self.housing_preferences.get("preferred_property_types")
+            preferred_counties = self.housing_preferences.get("counties")
+            sampled_houses = self.housing_market.sample_properties(
+                n=self.PROPERTY_SEARCH_SAMPLE,
+                min_price=min_price,
+                max_price=max_property_price,
+                property_types=preferred_types,
+                counties=preferred_counties,
+            )
+            # If preferred filters yield nothing, widen to any matching price range
+            if not sampled_houses:
+                sampled_houses = self.housing_market.sample_properties(
+                    n=self.PROPERTY_SEARCH_SAMPLE,
+                    min_price=min_price,
+                    max_price=max_property_price,
+                )
 
-        candidate_prices.add(round(min_price, -3))
-
-        # Also try max borrowable by income + deposit
-        income_max = self.gross_salary * 4.5 + deposit
-        if min_price <= income_max <= max_property_price:
-            candidate_prices.add(round(income_max, -3))
-
-        # Sort highest to lowest so the best property is tried first
-        sorted_prices = sorted(candidate_prices, reverse=True)
+        # Extract prices from real houses, or fall back to synthetic price points
+        if sampled_houses:
+            candidate_prices = sorted(
+                {round(h.price, -3) for h in sampled_houses},
+                reverse=True
+            )
+            # Store so the BUY path can assign current_property
+            self.last_search_results = sampled_houses
+        else:
+            # Fallback: generate synthetic price candidates from deposit/income
+            # (used when no Land Registry data is loaded)
+            self.last_search_results = []
+            candidate_set = {round(max_property_price, -3)}
+            min_dep_pct = self.target_deposit_pct
+            for pct in (min_dep_pct, 0.10, 0.15, 0.20, 0.25):
+                if pct >= min_dep_pct and deposit > 0:
+                    price_at_pct = deposit / pct
+                    if min_price <= price_at_pct <= max_property_price:
+                        candidate_set.add(round(price_at_pct, -3))
+            candidate_set.add(round(min_price, -3))
+            income_max = self.gross_salary * 4.5 + deposit
+            if min_price <= income_max <= max_property_price:
+                candidate_set.add(round(income_max, -3))
+            candidate_prices = sorted(candidate_set, reverse=True)
 
         best = None
+        best_house = None
 
-        for property_price in sorted_prices:
+        for idx, property_price in enumerate(candidate_prices):
             if property_price < min_price or property_price <= 0:
                 continue
 
@@ -935,8 +1154,6 @@ class ResidentAgent:
 
                     # Prefer the HIGHEST property price that is still
                     # affordable, then break ties by comfort score.
-                    # This way agents buy the best property they can
-                    # reasonably afford, not just the cheapest.
                     candidate_key = (property_price, affordability["score"])
                     best_key = (best["property_price"], best["affordability_score"]) if best else (-1, -1)
 
@@ -954,6 +1171,15 @@ class ResidentAgent:
                             "affordability_score": affordability["score"],
                             "comfort_label": affordability["comfort_label"],
                         }
+                        # Track the matching house object (if from real data)
+                        if sampled_houses and idx < len(sampled_houses):
+                            best_house = sampled_houses[idx]
+
+        # Make sure current_property points to the winning house object
+        if best is not None and best_house is not None:
+            self.last_search_results = [best_house] + [
+                h for h in self.last_search_results if h is not best_house
+            ]
 
         return best
 
@@ -963,6 +1189,10 @@ class ResidentAgent:
 
     # Months on which the AI makes a housing decision (default: quarterly)
     AI_DECISION_MONTHS = [1, 4, 7, 10]
+
+    # How many properties an agent can view per search — realistic browsing limit.
+    # UK FTBs typically view ~10-20 properties before buying.
+    PROPERTY_SEARCH_SAMPLE = 20
 
     def monthly_step(self, month, sim_year):
         """
@@ -983,6 +1213,7 @@ class ResidentAgent:
 
         old_happiness = self.happiness_score
         old_savings = self.financial_state["savings"]
+        old_debt = self.financial_state.get("debt", 0)
         triggered_events = []
 
         # ---- YEARLY EVENTS (month 1 only) ----
@@ -1019,6 +1250,12 @@ class ResidentAgent:
             triggered_events += self._generate_life_events()
             for event in triggered_events:
                 self.apply_life_event(event)
+
+            # Evaluate living situation once per year — may downgrade or upgrade
+            situation_event = self._evaluate_living_situation()
+            if situation_event:
+                triggered_events.append(situation_event)
+                self.life_events.append(situation_event)
 
             # Regenerate preferences (they shift with age and income)
             self.evaluate_housing_preferences()
@@ -1136,12 +1373,20 @@ class ResidentAgent:
             "age": self.age,
             "gross_salary": round(self.gross_salary, 0),
             "net_monthly": round(self.financial_state["net_salary"] / 12, 0),
+            "monthly_expenses": round(self.financial_state.get("total_expenses_monthly", 0), 0),
+            "monthly_rent": round(
+                self.active_mortgage.get("monthly_payment", 0) if self.active_mortgage
+                else self.monthly_rent, 0),
             "savings": round(self.financial_state["savings"], 0),
             "monthly_available": round(self.monthly_available_funds, 0),
             "happiness_before": old_happiness,
             "happiness_after": self.happiness_score,
-            "financial_change": round(self.financial_state["savings"] - old_savings, 0),
+            "financial_change": round(
+                (self.financial_state["savings"] - old_savings)
+                - (self.financial_state.get("debt", 0) - old_debt), 0),
+            "total_debt": round(self.financial_state.get("debt", 0), 0),
             "housing_status": self.mortgage_status,
+            "living_situation": self.living_situation,
             "life_events_this_month": triggered_events if month == 1 else [],
             "major_events": self.life_events[-3:],
             "savings_breakdown": savings_result,
@@ -1167,6 +1412,7 @@ class ResidentAgent:
         # Snapshot the starting state for comparison later
         old_happiness = self.happiness_score
         old_savings = self.financial_state["savings"]
+        old_debt = self.financial_state.get("debt", 0)
         auto_events = []  # Events generated by the simulation (not the user)
 
         # Age the resident
@@ -1205,19 +1451,32 @@ class ResidentAgent:
         # Recalculate finances for the new year
         self.update_financial_state()
 
+        # Evaluate living situation — may downgrade or upgrade
+        situation_event = self._evaluate_living_situation()
+        if situation_event:
+            triggered_events.append(situation_event)
+            self.life_events.append(situation_event)
+            # Recalculate after rent change
+            self.update_financial_state()
+
         # Add exactly one year's worth of spare cash to savings
-        self.accumulate_annual_savings()
+        savings_breakdown = self.accumulate_annual_savings()
 
         # Regenerate preferences (they shift with age and income)
         self.evaluate_housing_preferences()
 
         # Track the AI's full decision result for display purposes
         decision_result = {}
+        # Track purchase details for FTB logging (populated only on a BUY)
+        _purchase_details = {}
 
         # -- Non-homeowner path: ask the LLM what to do --
         if self.mortgage_status != "active_mortgage":
             decision_result = self.make_housing_decision()
             decision = decision_result["decision"]
+
+            # Track purchase details for logging
+            _purchase_details = {}
 
             if decision == "BUY":
                 # Try to find an approved mortgage within budget
@@ -1230,6 +1489,15 @@ class ResidentAgent:
                         self.current_property = self.last_search_results[0]
                     else:
                         self.current_property = f"Property @ £{best_mortgage['property_price']:,.0f}"
+
+                    # Capture FTB purchase details before deducting savings
+                    _purchase_details = {
+                        "property_price": best_mortgage["property_price"],
+                        "deposit_paid":   best_mortgage["deposit_paid"],
+                        "deposit_pct":    round(best_mortgage["deposit_paid"] / best_mortgage["property_price"] * 100, 2),
+                        "mortgage_rate":  best_mortgage.get("rate"),
+                        "first_time_buyer": self.first_time_buyer,
+                    }
 
                     # Deduct the deposit from savings
                     self.financial_state["savings"] -= best_mortgage["deposit_paid"]
@@ -1319,17 +1587,33 @@ class ResidentAgent:
             "age": self.age,
             "gross_salary": round(self.gross_salary, 0),
             "net_monthly": round(self.financial_state["net_salary"] / 12, 0),
+            "monthly_expenses": round(self.financial_state.get("total_expenses_monthly", 0), 0),
+            "monthly_rent": round(
+                self.active_mortgage.get("monthly_payment", 0) if self.active_mortgage
+                else self.monthly_rent, 0),
             "savings": round(self.financial_state["savings"], 0),
             "monthly_available": round(self.monthly_available_funds, 0),
             "happiness_before": old_happiness,
             "happiness_after": self.happiness_score,
-            "financial_change": round(self.financial_state["savings"] - old_savings, 0),
+            "financial_change": round(
+                (self.financial_state["savings"] - old_savings)
+                - (self.financial_state.get("debt", 0) - old_debt), 0),
+            "total_debt": round(self.financial_state.get("debt", 0), 0),
             "housing_status": self.mortgage_status,
+            "living_situation": self.living_situation,
             "life_events_this_year": triggered_events,
             "major_events": self.life_events[-3:],
             # -- Affordability metrics --
             "affordability_ratio": round(affordability_ratio, 2),
             "deposit_readiness_pct": round(deposit_readiness, 1),
+            # -- Savings breakdown (what drove the change in savings this year) --
+            "savings_breakdown": savings_breakdown,
+            # -- First-time buyer purchase details (populated only when decision == BUY) --
+            "property_price":   _purchase_details.get("property_price"),
+            "deposit_paid":     _purchase_details.get("deposit_paid"),
+            "deposit_pct":      _purchase_details.get("deposit_pct"),
+            "mortgage_rate":    _purchase_details.get("mortgage_rate"),
+            "first_time_buyer": _purchase_details.get("first_time_buyer"),
             # -- AI transparency fields --
             "ai_reasoning": decision_result.get("reasoning", ""),
             "ai_timeline": decision_result.get("timeline", ""),
@@ -1405,6 +1689,20 @@ class ResidentAgent:
 
         :return: Dict with decision, reasoning, timeline, and raw_response.
         """
+        if not self.use_llm:
+            # Rule-based homeowner decision
+            overpay_threshold = 500
+            decision = "STAY"
+            if self.active_mortgage and self.monthly_available_funds > overpay_threshold:
+                decision = "OVERPAY_MORTGAGE"
+            return {
+                "decision": decision,
+                "reasoning": "rule-based (LLM disabled)",
+                "timeline": "",
+                "raw_response": "",
+                "tool_trace": [],
+            }
+
         self.llm = ChatOllama(model="llama3.2")
         self.tools = build_agent_tools(self)
 
@@ -1760,6 +2058,9 @@ class ResidentAgent:
         :param year_result: The dict returned by time_step() or monthly_step().
         :return: String narrative from the LLM, or a fallback message.
         """
+        if not self.use_llm:
+            return ""
+
         # Handle both annual and monthly event keys
         events = (year_result.get("life_events_this_year")
                   or year_result.get("life_events_this_month")

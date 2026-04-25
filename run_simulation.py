@@ -17,6 +17,8 @@ from Environment.Banks import Bank
 from Financial.Expense_Manager import ExpenseManager
 from Financial.Financial_Calculator import SalaryCalculator
 from Agents.Resident_Agent import ResidentAgent
+from synthetic_agents import AGENT_PROFILES, MONTHLY_RENT
+from compute_metrics import compute_all, print_results as print_metrics
 
 
 # ----------------------------------------------------------------
@@ -47,6 +49,8 @@ class SimulationLogger:
         :param agent_name: Name of the agent.
         :param year_result: Dict returned by ResidentAgent.time_step().
         """
+        is_ftb = year_result.get("decision") == "BUY" and year_result.get("first_time_buyer", True)
+        sb = year_result.get("savings_breakdown", {})
         self.rows.append({
             "sim_year": sim_year,
             "month": "annual",
@@ -55,16 +59,30 @@ class SimulationLogger:
             "decision": year_result.get("decision"),
             "gross_salary": year_result.get("gross_salary"),
             "net_monthly": year_result.get("net_monthly"),
+            "monthly_expenses": year_result.get("monthly_expenses"),
+            "monthly_rent": year_result.get("monthly_rent"),
             "savings": year_result.get("savings"),
             "monthly_available": year_result.get("monthly_available"),
             "happiness_before": year_result.get("happiness_before"),
             "happiness_after": year_result.get("happiness_after"),
             "financial_change": year_result.get("financial_change"),
+            "total_debt": year_result.get("total_debt"),
             "housing_status": year_result.get("housing_status"),
+            "living_situation": year_result.get("living_situation"),
             "life_events": "; ".join(year_result.get("life_events_this_year", [])),
             "affordability_ratio": year_result.get("affordability_ratio"),
             "deposit_readiness_pct": year_result.get("deposit_readiness_pct"),
-
+            # Savings breakdown columns - shows exactly where savings came from
+            "saved_from_surplus": sb.get("general_saved"),
+            "goal_contributions": sb.get("goal_contributions"),
+            "interest_earned": sb.get("interest_earned"),
+            # First-time buyer tracking columns
+            "is_ftb_year": is_ftb,
+            "ftb_age": year_result.get("age") if is_ftb else None,
+            "property_price": year_result.get("property_price") if is_ftb else None,
+            "deposit_paid": year_result.get("deposit_paid") if is_ftb else None,
+            "deposit_pct": year_result.get("deposit_pct") if is_ftb else None,
+            "mortgage_rate": year_result.get("mortgage_rate") if is_ftb else None,
         })
 
     def log_month(self, sim_year, month, agent_name, month_result):
@@ -76,6 +94,7 @@ class SimulationLogger:
         :param agent_name: Name of the agent.
         :param month_result: Dict returned by ResidentAgent.monthly_step().
         """
+        is_ftb = month_result.get("decision") == "BUY" and month_result.get("first_time_buyer", True)
         self.rows.append({
             "sim_year": sim_year,
             "month": month_result.get("month_label", month),
@@ -84,15 +103,30 @@ class SimulationLogger:
             "decision": month_result.get("decision"),
             "gross_salary": month_result.get("gross_salary"),
             "net_monthly": month_result.get("net_monthly"),
+            "monthly_expenses": month_result.get("monthly_expenses"),
+            "monthly_rent": month_result.get("monthly_rent"),
             "savings": month_result.get("savings"),
             "monthly_available": month_result.get("monthly_available"),
             "happiness_before": month_result.get("happiness_before"),
             "happiness_after": month_result.get("happiness_after"),
             "financial_change": month_result.get("financial_change"),
+            "total_debt": month_result.get("total_debt"),
             "housing_status": month_result.get("housing_status"),
+            "living_situation": month_result.get("living_situation"),
             "life_events": "; ".join(month_result.get("life_events_this_month", [])),
             "affordability_ratio": month_result.get("affordability_ratio"),
             "deposit_readiness_pct": month_result.get("deposit_readiness_pct"),
+            # Savings breakdown columns
+            "saved_from_surplus": month_result.get("savings_breakdown", {}).get("general_saved"),
+            "goal_contributions": month_result.get("savings_breakdown", {}).get("goal_contributions"),
+            "interest_earned": month_result.get("savings_breakdown", {}).get("interest_earned"),
+            # First-time buyer tracking columns
+            "is_ftb_year": is_ftb,
+            "ftb_age": month_result.get("age") if is_ftb else None,
+            "property_price": month_result.get("property_price") if is_ftb else None,
+            "deposit_paid": month_result.get("deposit_paid") if is_ftb else None,
+            "deposit_pct": month_result.get("deposit_pct") if is_ftb else None,
+            "mortgage_rate": month_result.get("mortgage_rate") if is_ftb else None,
         })
 
     def export_csv(self, filename=None):
@@ -1061,7 +1095,7 @@ def display_ai_activity(agent_name, result):
 #  HELPER: BUILD AGENTS
 # --------------------------------------------------------------------------
 
-def build_agents(housing_market, banks, num_agents=3, seed=42):
+def build_agents(housing_market, banks, num_agents=3, seed=42, use_llm=True):
     """
     Create a list of ResidentAgent instances with varied demographics.
 
@@ -1095,8 +1129,9 @@ def build_agents(housing_market, banks, num_agents=3, seed=42):
 
         initial_savings = rng.uniform(0.10, 0.25) * salary  # 10-25% of annual salary
 
-        # Random savings rate between 30% and 60%
-        savings_rate = rng.uniform(0.30, 0.60)
+        # Random savings rate between 10% and 25% of spare cash
+        # (UK average household savings rate is roughly 10-15%)
+        savings_rate = rng.uniform(0.10, 0.25)
 
         agent = ResidentAgent(
             agent_id=f"AGENT-{i+1:03d}",
@@ -1111,9 +1146,131 @@ def build_agents(housing_market, banks, num_agents=3, seed=42):
             family_size=fam,
             monthly_rent=rent,
             savings_rate=savings_rate,
+            use_llm=use_llm,
         )
         agents.append(agent)
         print(f"  Created agent: {agent}")
+
+    return agents
+
+
+# --------------------------------------------------------------------------
+#  BUILD AGENTS FROM SYNTHETIC PROFILES
+# --------------------------------------------------------------------------
+
+def build_agents_from_profiles(housing_market, banks, max_agents=None, use_llm=True):
+    """
+    Convert AGENT_PROFILES tuples from synthetic_agents.py into real
+    ResidentAgent instances so the LLM simulation can run them.
+
+    Each tuple format:
+        (name, start_age, start_salary, start_savings, savings_rate,
+         monthly_expenses, background, target_deposit_pct,
+         has_student_loan, start_partnered, start_children)
+
+    :param housing_market: HousingMarket instance.
+    :param banks: List of Bank objects.
+    :param max_agents: Limit how many profiles to load (None = all).
+                       Running all 40+ with the LLM is slow - use a subset
+                       for quick tests.
+    :return: List of ResidentAgent instances.
+    """
+    if max_agents is None or max_agents >= len(AGENT_PROFILES):
+        profiles = AGENT_PROFILES
+    else:
+        profiles = random.sample(AGENT_PROFILES, max_agents)
+    agents = []
+
+    # Bedroom needs: 1 for single, +1 per child, +1 if partnered
+    def _bedrooms(partnered, children):
+        beds = 1 + children
+        if partnered:
+            beds = max(beds, 2)
+        return min(beds, 4)  # Cap at 4-bed for rent lookup
+
+    for i, profile in enumerate(profiles):
+        (name, start_age, start_salary, start_savings, savings_rate,
+         monthly_expenses, background, target_deposit_pct,
+         has_student_loan, start_partnered, start_children) = profile
+
+        # Build an ExpenseManager from the single monthly_expenses figure.
+        # Split the total across realistic categories so the expense manager
+        # works as normal - rent is handled separately by ResidentAgent.
+        em = ExpenseManager()
+        remaining = float(monthly_expenses)
+        # Rough realistic split of living costs (excluding rent)
+        em.add_expense("food",          "groceries",       remaining * 0.25, "monthly")
+        em.add_expense("food",          "eating_out",      remaining * 0.08, "monthly")
+        em.add_expense("utilities",     "gas_electric",    remaining * 0.12, "monthly")
+        em.add_expense("utilities",     "water",           remaining * 0.04, "monthly")
+        em.add_expense("utilities",     "broadband_phone", remaining * 0.05, "monthly")
+        em.add_expense("transport",     "travel",          remaining * 0.12, "monthly")
+        em.add_expense("subscriptions", "streaming",       remaining * 0.03, "monthly")
+        em.add_expense("insurance",     "contents_life",   remaining * 0.05, "monthly")
+        em.add_expense("health",        "health_misc",     remaining * 0.03, "monthly")
+        em.add_expense("hobbies",       "leisure",         remaining * 0.10, "monthly")
+        em.add_expense("misc",          "clothing_other",  remaining * 0.13, "monthly")
+
+        # Student loan setup - assume already graduated (repayments active)
+        loan_plans = ["plan_2"] if has_student_loan else []
+        loan_balance = 35_000 if has_student_loan else 0
+
+        # Family size = 1 (self) + 1 if partnered + children
+        family_size = 1 + (1 if start_partnered else 0) + start_children
+
+        # Monthly rent based on bedroom needs
+        beds = _bedrooms(start_partnered, start_children)
+        full_rent = MONTHLY_RENT.get(beds, 1100)
+        # Partnered agents share rent 50/50 with their partner.
+        # The partner isn't a separate LLM agent but they do contribute
+        # to household costs — charging the full rent would make partnered
+        # agents worse off than singles, which is the opposite of reality.
+        monthly_rent = full_rent // 2 if start_partnered else full_rent
+
+        fc = SalaryCalculator(start_salary, student_loan_plans=loan_plans)
+
+        # -- Determine starting living situation --
+        # Estimate net monthly to see if the agent can afford to live alone
+        _net = SalaryCalculator(start_salary, student_loan_plans=loan_plans).calculate_net_pay()["net_pay"] / 12
+        _solo_available = _net - float(monthly_expenses) - monthly_rent
+        _shared_available = _net - float(monthly_expenses) - (min(monthly_rent, 850) * 0.5)
+
+        if start_age <= 19:
+            # Very young: still living at home is realistic
+            living_situation = "with_parents"
+        elif _solo_available < -100:
+            # Can't afford solo — try shared first
+            if _shared_available < -100:
+                living_situation = "with_parents"
+            else:
+                living_situation = "shared"
+        else:
+            living_situation = "solo"
+
+        agent = ResidentAgent(
+            agent_id=f"SYNTH-{i+1:03d}",
+            age=start_age,
+            name=name,
+            gross_salary=start_salary,
+            expense_manager=em,
+            financial_calculator=fc,
+            initial_savings=start_savings,
+            housing_market=housing_market,
+            banks_list=banks,
+            family_size=family_size,
+            monthly_rent=monthly_rent,
+            student_loan_plans=loan_plans,
+            student_loan_balance=loan_balance,
+            student_loan_graduation_year=None,  # Already graduated - repayments active
+            savings_rate=savings_rate,
+            first_time_buyer=True,
+            living_situation=living_situation,
+            use_llm=use_llm,
+            target_deposit_pct=float(target_deposit_pct),
+        )
+        agents.append(agent)
+        print(f"  Created agent: {name} (age {start_age}, £{start_salary:,}/yr, "
+              f"savings £{start_savings:,}, living: {living_situation})")
 
     return agents
 
@@ -1148,7 +1305,7 @@ def run_simulation(num_agents=3, num_years=10, load_housing_data=True,
     if load_housing_data:
         lr_path = project_root / "Environment" / "Housing" / "HM Land Registery Price Paid"
         if lr_path.exists():
-            years_to_load = housing_years or [2023, 2024]
+            years_to_load = housing_years or [2022, 2023, 2024]
             print(f"  Loading Land Registry data for years: {years_to_load}")
             housing_market.load_years(years_to_load, str(lr_path))
             print(f"  Loaded {len(housing_market.houses):,} properties")
@@ -1170,10 +1327,24 @@ def run_simulation(num_agents=3, num_years=10, load_housing_data=True,
 
     # -- Build the agents --
     print(f"\n[3/4] Setting up agents...")
-    print("  Would you like to enter your own details, or use pre-built agents?")
+
+    # Ask LLM mode first so agents can be created with the right flag
+    # (avoids Ollama model loading for each agent when not needed)
+    print("  Decision-making mode:")
+    print("    1 - LLM (Ollama)   — realistic reasoning, slow (~30s per agent-year)")
+    print("    2 - Rule-based     — fast deterministic logic, ideal for bulk stats")
+    llm_choice = input("  Choose [1/2]: ").strip()
+    use_llm = llm_choice != "2"
+    if not use_llm:
+        print("  ✓ Rule-based mode — LLM disabled. Bulk run will be near-instant.")
+    else:
+        print("  ✓ LLM mode — Ollama will be called for each agent decision.")
+
+    print("\n  Agent type:")
     print("    1 - Enter my own details (you become an agent in the simulation)")
-    print("    2 - Use default agents only")
-    choice = input("  Choose [1/2]: ").strip()
+    print("    2 - Use default agents only (Alice, Bob, Clara...)")
+    print("    3 - Use synthetic agent profiles (40 varied agents)")
+    choice = input("  Choose [1/2/3]: ").strip()
 
     agents = []
     if choice == "1":
@@ -1184,13 +1355,20 @@ def run_simulation(num_agents=3, num_years=10, load_housing_data=True,
         if comparison_count > 0:
             print(f"\n  Adding {comparison_count} comparison agent(s)...")
             agents.extend(build_agents(housing_market, banks,
-                                       num_agents=comparison_count, seed=seed))
+                                       num_agents=comparison_count, seed=seed,
+                                       use_llm=use_llm))
+    elif choice == "3":
+        print(f"\n  Loading synthetic agent profiles from synthetic_agents.py...")
+        limit_input = input(f"  How many agents to run? (Enter for all {len(AGENT_PROFILES)}): ").strip()
+        max_agents = int(limit_input) if limit_input.isdigit() else None
+        agents = build_agents_from_profiles(housing_market, banks, max_agents=max_agents, use_llm=use_llm)
+        print(f"\n  Loaded {len(agents)} synthetic agent(s).")
     else:
-        agents = build_agents(housing_market, banks, num_agents=num_agents, seed=seed)
+        agents = build_agents(housing_market, banks, num_agents=num_agents, seed=seed, use_llm=use_llm)
 
     # -- Choose simulation mode --
-    print("\n  How would you like to run the simulation?")
-    print("    1 - Monthly  (detailed month-by-month, AI decides quarterly)")
+    print("\n  Simulation step size:")
+    print("    1 - Monthly  (month-by-month, AI decides quarterly)")
     print("    2 - Annual   (one step per year, faster)")
     mode_choice = input("  Choose [1/2]: ").strip()
     monthly_mode = mode_choice == "1"
@@ -1378,6 +1556,35 @@ def run_simulation(num_agents=3, num_years=10, load_housing_data=True,
         if status['life_events']:
             print(f"    Life events: {', '.join(status['life_events'][-5:])}")
 
+    # Print first-time buyer summary table
+    ftb_rows = [r for r in logger.rows if r.get("is_ftb_year")]
+    if ftb_rows:
+        print("\n--- First-Time Buyer Summary ---")
+        print(f"  {'Agent':<14} {'Year':<6} {'Age':<5} {'Property Price':>15} "
+              f"{'Deposit Paid':>14} {'Deposit %':>10} {'Rate':>6}")
+        print("  " + "-" * 72)
+        for r in ftb_rows:
+            price   = f"£{r['property_price']:,.0f}"   if r.get("property_price")  else "N/A"
+            deposit = f"£{r['deposit_paid']:,.0f}"      if r.get("deposit_paid")    else "N/A"
+            dpct    = f"{r['deposit_pct']:.1f}%"        if r.get("deposit_pct")     else "N/A"
+            rate    = f"{r['mortgage_rate']:.2f}%"      if r.get("mortgage_rate")   else "N/A"
+            print(f"  {r['agent']:<14} {r['sim_year']:<6} {r['ftb_age']:<5} "
+                  f"{price:>15} {deposit:>14} {dpct:>10} {rate:>6}")
+    else:
+        print("\n  No first-time purchases recorded in this run.")
+
+    # -- Auto-run metrics report --
+    print("\n" + "=" * 60)
+    print("  COMPUTING METRICS...")
+    print("=" * 60)
+    try:
+        import pandas as pd
+        df = pd.DataFrame(logger.rows)
+        metrics = compute_all(df)
+        print_metrics(metrics)
+    except Exception as e:
+        print(f"  [Metrics] Could not compute metrics: {e}")
+
     return logger
 
 
@@ -1386,10 +1593,19 @@ def run_simulation(num_agents=3, num_years=10, load_housing_data=True,
 # --------------------------------------------------------------------------
 
 if __name__ == "__main__":
+    print("=" * 60)
+    print("  HOUSING AFFORDABILITY SIMULATION - SETUP")
+    print("=" * 60)
+
+    # Ask the user how many years to run
+    _years_raw = input("\n  How many years to simulate? (default 10): ").strip()
+    _num_years = int(_years_raw) if _years_raw.isdigit() and int(_years_raw) > 0 else 10
+    print(f"  Running for {_num_years} year(s).")
+
     run_simulation(
         num_agents=3,
-        num_years=10,
+        num_years=_num_years,
         load_housing_data=True,
-        housing_years=[2023, 2024],
+        housing_years=[2022, 2023, 2024],
         seed=42,
     )

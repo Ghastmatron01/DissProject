@@ -1,4 +1,5 @@
 import pandas as pd
+import random
 import re
 from datetime import datetime
 from tabulate import tabulate
@@ -244,7 +245,7 @@ class HousingMarket:
                                 min_date="2020-01-01",
                                 counties=None,
                                 districts=None,
-                                min_price=50_000,
+                                min_price=150_000,
                                 max_price=1_000_000):
         """
         Load and filter Land Registry price paid data from a CSV.
@@ -375,6 +376,30 @@ class HousingMarket:
             results = [h for h in results if h.date <= before_date]
 
         return results
+
+    def sample_properties(self, n=20, min_price=None, max_price=None,
+                          property_types=None, counties=None):
+        """
+        Return a random sample of up to *n* properties matching the given
+        criteria. Mimics a real buyer browsing a limited set of listings
+        rather than having access to the entire market.
+
+        :param n: Maximum number of properties to return (default 20).
+        :param min_price: Minimum price filter.
+        :param max_price: Maximum price filter.
+        :param property_types: List of property type strings.
+        :param counties: List of county names.
+        :return: List of House objects (≤ n items).
+        """
+        candidates = self.search(
+            min_price=min_price,
+            max_price=max_price,
+            property_types=property_types,
+            counties=counties,
+        )
+        if not candidates:
+            return []
+        return random.sample(candidates, min(n, len(candidates)))
 
     # --------------------------------------------------------------------
     #  Query Data
