@@ -67,6 +67,7 @@ class SimulationLogger:
             "happiness_after": year_result.get("happiness_after"),
             "financial_change": year_result.get("financial_change"),
             "total_debt": year_result.get("total_debt"),
+            "debt_summary": year_result.get("debt_summary"),
             "housing_status": year_result.get("housing_status"),
             "living_situation": year_result.get("living_situation"),
             "life_events": "; ".join(year_result.get("life_events_this_year", [])),
@@ -862,14 +863,14 @@ def yearly_user_interrupt(agent, sim_year):
             user_events.append("inheritance")
 
         # -- 8. Job loss --
-        elif choice == "8":
-            if agent.gross_salary <= 0:
-                print("    You're already unemployed — skipping.")
-            else:
-                result = agent.apply_life_event("job_loss")
-                for c in result["changes"]:
-                    print(f"      → {c}")
-                user_events.append("job_loss")
+#        elif choice == "8":
+ #           if agent.gross_salary <= 0:
+  #              print("    You're already unemployed — skipping.")
+   #         else:
+    #            result = agent.apply_life_event("job_loss")
+     #           for c in result["changes"]:
+      #              print(f"      → {c}")
+       #         user_events.append("job_loss")
 
         # -- 9. Other (free text → LLM) --
         elif choice == "9":
@@ -1497,7 +1498,17 @@ def run_simulation(num_agents=3, num_years=10, load_housing_data=True,
 
                 try:
                     result = agent.time_step(years_elapsed=1)
-
+                    # --- DEBUG: Print active debts if they exceed a certain threshold ---
+                    debt_list = agent.debt_manager.full_debt_list()
+                    if agent.financial_state.get("debt", 0) > 10000:  # Adjust threshold as needed
+                        print(f"\n  [DEBT TRACKER] {agent.name} in Year {sim_year}:")
+                        for d_name, d_info in debt_list.items():
+                            print(
+                                f"    - {d_name}: Balance £{d_info['balance']:,.2f} | Paying £{d_info['monthly_payment']:,.2f}/mo")
+                        print(f"    - Net Monthly Income: £{agent.financial_state['net_salary'] / 12:,.2f}")
+                        print(
+                            f"    - Total Monthly Expenses (inc. debt): £{agent.financial_state['total_expenses_monthly']:,.2f}")
+                        print("-" * 50)
                     # Merge any user-reported events into the result so they appear in logs
                     if agent.agent_id == "USER-001" and user_year_events:
                         result["life_events_this_year"] = user_year_events + result.get("life_events_this_year", [])
@@ -1543,7 +1554,6 @@ def run_simulation(num_agents=3, num_years=10, load_housing_data=True,
 
     logger.print_summary()
     csv_path = logger.export_csv()
-
     # Print final agent states
     print("\n--- Final Agent States ---")
     for agent in agents:

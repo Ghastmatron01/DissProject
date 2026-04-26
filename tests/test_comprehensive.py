@@ -325,7 +325,7 @@ class TestAgentUnitTests:
 
 
 # ============================================================================
-# BOUNDARY TESTS (8) - MIXED RESULTS
+# BOUNDARY TESTS
 # ============================================================================
 
 class TestFinancialBoundaryTests:
@@ -398,6 +398,316 @@ class TestMortgageBoundaryTests:
             assert False, "Should have raised KeyError"
         except KeyError:
             pass
+
+class TestFinancialBoundaryEdgeCases:
+    """Additional boundary/edge case tests for Financial module."""
+
+    def test_FIN_BC_04_zero_property_price(self):
+        """Test: SDLT for £0 property."""
+        from Financial.Financial_Calculator import calculate_sdlt
+        assert calculate_sdlt(0) == 0
+
+class TestHousingBoundaryEdgeCases:
+    """Additional boundary/edge case tests for Housing module."""
+
+    def test_HOUS_BC_03_zero_similarity_match(self):
+        """Test: Fuzzy match returns None for no match scenario."""
+        if fuzzy_match is None:
+            pytest.skip("Fuzzy utils not available")
+        result = fuzzy_match("zzzzzz", ["london", "manchester"])
+        assert result is None or result[1] == 0
+
+    def test_HOUS_BC_04_missing_location_data(self):
+        """Test: Handle missing location data."""
+        from Environment.Housing.Housing import House
+        with pytest.raises(ValueError):
+            House(price=350000, bedrooms=3)
+#    def __init__(self, price, postcode, property_type, date, county, district, bedrooms=Non
+class TestMortgageBoundaryEdgeCases:
+    """Additional boundary/edge case tests for Mortgages module."""
+
+    def test_MORT_BC_03_max_loan_amount(self):
+        """Test: Very high loan amount (£1M+)."""
+        if MortgageProduct is None or MortgageCalculator is None:
+            pytest.skip("Mortgage modules not available")
+        product = MortgageProduct("FIXED_2_5.2")
+        calculator = MortgageCalculator(
+            mortgage_product=product,
+            property_price=1500000,
+            deposit_amount=100000,
+            term_years=30
+        )
+        monthly_payment = calculator.calculate_monthly_payment()
+        assert monthly_payment > 0
+
+class TestBankBoundaryEdgeCases:
+    """Additional boundary/edge case tests for Banks module."""
+
+    def test_BANK_BC_02_invalid_branch_id(self):
+        """Test: Invalid branch ID handling."""
+        if BranchManager is None:
+            pytest.skip("BranchManager not available")
+        bm = BranchManager()
+        with pytest.raises(KeyError):
+            bm.get_branch("INVALID_ID")
+
+class TestAlgorithmBoundaryEdgeCases:
+    """Additional boundary/edge case tests for Algorithms module."""
+
+    def test_ALG_BC_02_invalid_fault_type(self):
+        """Test: Invalid fault type rejected."""
+        from Algorithms.Fault_Modelling import FaultModelling
+        fm = FaultModelling()
+        with pytest.raises(ValueError):
+            fm.add_fault("not_a_real_fault_type")
+
+
+# ============================================================================
+# DATA VALIDATION TESTS (8)
+# ============================================================================
+
+class TestFinancialDataValidation:
+    """Data validation tests for Financial module."""
+
+    def test_FIN_DV_01_invalid_category_rejected(self):
+        """Test: Invalid expense categories rejected."""
+        em = ExpenseManager()
+        with pytest.raises(ValueError):
+            em.add_expense("invalid_category", "item", 100)
+
+    def test_FIN_DV_02_invalid_ni_category(self):
+        """Test: Invalid NI category rejected."""
+        sc = SalaryCalculator(40000)
+        with pytest.raises(ValueError):
+            sc.calculate_ni("Z")
+
+class TestHousingDataValidation:
+    """Data validation tests for Housing module."""
+
+    def test_HOUS_DV_01_invalid_property_type(self):
+        """Test: Invalid property type rejected."""
+        from Environment.Housing.Housing import House
+        with pytest.raises(ValueError):
+            House(price=350000, bedrooms=3, location="city", property_type="castle")
+
+    def test_HOUS_DV_02_invalid_bedrooms(self):
+        """Test: Invalid bedroom count rejected."""
+        from Environment.Housing.Housing import House
+        with pytest.raises(ValueError):
+            House(price=350000, bedrooms=-1, location="city")
+
+class TestMortgageDataValidation:
+    """Data validation tests for Mortgages module."""
+
+    def test_MORT_DV_01_invalid_product_data(self):
+        """Test: Invalid product data rejected."""
+        if MortgageProduct is None:
+            pytest.skip("MortgageProduct not available")
+        with pytest.raises(ValueError):
+            MortgageProduct(product_id=None)
+
+    def test_MORT_DV_02_negative_interest_rate(self):
+        """Test: Negative rates rejected."""
+        if MortgageProduct is None:
+            pytest.skip("MortgageProduct not available")
+        with pytest.raises(ValueError):
+            MortgageProduct(product_id="FIXED_2_5.2", rate=-0.01)
+
+class TestBankDataValidation:
+    """Data validation tests for Banks module."""
+
+    def test_BANK_DV_01_invalid_bank_data(self):
+        """Test: Invalid bank data rejected."""
+        if Bank is None:
+            pytest.skip("Bank not available")
+        with pytest.raises(ValueError):
+            Bank(name=None, bank_id=None)
+
+class TestAlgorithmDataValidation:
+    """Data validation tests for Algorithms module."""
+
+    def test_ALG_DV_01_corrupted_data_handling(self):
+        """Test: Handle corrupted data gracefully."""
+        if DataExtraction is None:
+            pytest.skip("DataExtraction not available")
+        extractor = DataExtraction()
+        with pytest.raises(Exception):
+            extractor.extract_from_housing(None)
+
+
+# ============================================================================
+# INTEGRATION TESTS (12)
+# ============================================================================
+
+class TestFinancialIntegration:
+    """Integration tests for Financial module."""
+
+    def test_FIN_INT_01_debt_plus_salary_deductions(self):
+        """Test: Debt and salary deductions work together."""
+        dm = DebtManager()
+        dm.add_debt("loan", 5000, 0.08, 150)
+        sc = SalaryCalculator(40000)
+        net = sc.calculate_net_pay()
+        total_debt_payment = dm.total_monthly_payments()
+        assert net["net_pay"] > total_debt_payment
+
+    def test_FIN_INT_02_expenses_reduce_savings_capacity(self):
+        """Test: Expenses impact savings goals."""
+        em = ExpenseManager()
+        em.add_expense("housing", "rent", 1200)
+        sgm = SavingsGoalManager()
+        sgm.add_goal("house", 50000, 500)
+        monthly_expenses = em.calculate_total_monthly()
+        assert monthly_expenses > 0
+        assert sgm.goals["house"]["target"] == 50000
+
+class TestHousingIntegration:
+    """Integration tests for Housing module."""
+
+    def test_HOUS_INT_01_housing_with_vocabulary(self):
+        """Test: Housing works with location vocab."""
+        if load_counties is None:
+            pytest.skip("Vocab not available")
+        counties = load_counties() if callable(load_counties) else []
+        assert isinstance(counties, (list, dict))
+
+    def test_HOUS_INT_02_housing_location_fuzzy_match(self):
+        """Test: Fuzzy matching for housing locations."""
+        if fuzzy_match is None:
+            pytest.skip("Fuzzy utils not available")
+        result = fuzzy_match("London", ["london", "manchester"])
+        assert result is not None
+
+class TestMortgageIntegration:
+    """Integration tests for Mortgages module."""
+
+    def test_MORT_INT_01_mortgage_for_property(self):
+        """Test: Get mortgage for specific property."""
+        if MortgageProduct is None or MortgageCalculator is None:
+            pytest.skip("Mortgage modules not available")
+        product = MortgageProduct("FIXED_2_5.2")
+        calculator = MortgageCalculator(
+            mortgage_product=product,
+            property_price=350000,
+            deposit_amount=70000,
+            term_years=25
+        )
+        monthly_payment = calculator.calculate_monthly_payment()
+        assert monthly_payment > 0
+
+    def test_MORT_INT_02_affordability_check(self):
+        """Test: Check affordability with salary."""
+        if MortgageProduct is None or MortgageCalculator is None:
+            pytest.skip("Mortgage modules not available")
+        product = MortgageProduct("FIXED_2_5.2")
+        calculator = MortgageCalculator(
+            mortgage_product=product,
+            property_price=350000,
+            deposit_amount=70000,
+            term_years=25
+        )
+        monthly_payment = calculator.calculate_monthly_payment()
+        sc = SalaryCalculator(40000)
+        net = sc.calculate_net_pay()
+        assert net["net_pay"] > monthly_payment
+
+class TestBankIntegration:
+    """Integration tests for Banks module."""
+
+    def test_BANK_INT_01_bank_mortgage_products(self):
+        """Test: Get mortgages from bank."""
+        if Bank is None or MortgageProduct is None:
+            pytest.skip("Bank or MortgageProduct not available")
+        bank = Bank(name="Test Bank", bank_id="TEST001")
+        # Assume bank has a method to add/get mortgage products
+        if hasattr(bank, "add_mortgage_product"):
+            product = MortgageProduct("FIXED_2_5.2")
+            bank.add_mortgage_product(product)
+            assert product in bank.get_mortgage_products()
+        else:
+            pytest.skip("Bank mortgage product methods not implemented")
+
+    def test_BANK_INT_02_branch_location_data(self):
+        """Test: Branch location information."""
+        if Branch is None:
+            pytest.skip("Branch not available")
+        branch = Branch(name="Main Branch", branch_id="BR001", location="London")
+        assert branch.location == "London"
+
+class TestAlgorithmIntegration:
+    """Integration tests for Algorithms module."""
+
+    def test_ALG_INT_01_algorithm_with_housing_data(self):
+        """Test: Algorithms work with housing."""
+        if ResidentAlgorithms is None:
+            pytest.skip("ResidentAlgorithms not available")
+        alg = ResidentAlgorithms()
+        # Assume ResidentAlgorithms can accept housing data
+        if hasattr(alg, "evaluate_housing"):
+            result = alg.evaluate_housing({"price": 350000, "bedrooms": 3, "location": "city"})
+            assert result is not None
+        else:
+            pytest.skip("evaluate_housing not implemented")
+
+    def test_ALG_INT_02_extract_from_housing_module(self):
+        """Test: Data extraction from housing."""
+        if DataExtraction is None:
+            pytest.skip("DataExtraction not available")
+        extractor = DataExtraction()
+        # Assume DataExtraction can extract from housing
+        if hasattr(extractor, "extract_from_housing"):
+            data = extractor.extract_from_housing({"price": 350000, "bedrooms": 3, "location": "city"})
+            assert data is not None
+        else:
+            pytest.skip("extract_from_housing not implemented")
+
+class TestAgentIntegration:
+    """Integration tests for Agents module."""
+
+    def test_AGENT_INT_01_agent_house_hunting(self):
+        """Test: Agent searches for houses."""
+        if ResidentAgent is None:
+            pytest.skip("ResidentAgent not available")
+        agent = ResidentAgent(name="Test Agent", age=30, salary=45000, savings=10000)
+        # Assume agent has a method to search houses
+        if hasattr(agent, "search_houses"):
+            results = agent.search_houses()
+            assert isinstance(results, list)
+        else:
+            pytest.skip("search_houses not implemented")
+
+
+# ============================================================================
+# PERFORMANCE/STRESS TESTS (3)
+# ============================================================================
+
+import time
+
+class TestPerformanceStress:
+    """Performance and stress tests for the full system."""
+
+    def test_CROSS_PERF_01_multiple_agents_performance(self):
+        """Test: 100 agents run efficiently (<10s)."""
+        if ResidentAgent is None:
+            pytest.skip("ResidentAgent not available")
+        start = time.time()
+        agents = [ResidentAgent(name=f"Agent{i}", age=30, salary=40000, savings=10000) for i in range(100)]
+        for agent in agents:
+            if hasattr(agent, "step"):
+                agent.step()
+        elapsed = time.time() - start
+        assert elapsed < 10
+
+    def test_CROSS_PERF_02_large_dataset_performance(self):
+        """Test: Large housing dataset processing (<5s for 100k records)."""
+        from Environment.Housing.Housing import House
+        start = time.time()
+        houses = [House(price=200000 + i, bedrooms=3) for i in range(100000)]
+        # Simulate a batch operation
+        total = sum(h.price for h in houses)
+        elapsed = time.time() - start
+        assert total > 0
+        assert elapsed < 5
 
 
 # ============================================================================

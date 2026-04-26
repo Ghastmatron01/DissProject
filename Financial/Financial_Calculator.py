@@ -23,7 +23,9 @@ class SalaryCalculator:
                  number_of_children=0,
                  receive_child_benefit=True,
                  gift_aid=0,
-                 salary_sacrifice=0):
+                 salary_sacrifice=0,
+                 simulation_year=2025,
+                 inflation_rate=0.025):
         """
         Initialise the calculator with the user's salary and deduction settings.
 
@@ -50,7 +52,7 @@ class SalaryCalculator:
             {"name": "personal_allowance", "upper": 12570, "rate": 0},
             {"name": "basic_rate", "upper": 50270, "rate": 0.2},
             {"name": "higher_rate", "upper": 125140, "rate": 0.4},
-            {"name": "additional_rate", "upper": None, "rate": 0.45}
+            {"name": "additional_rate", "upper": None, "rate": 0.45},
         ]
 
         # -- Employee NI brackets by category --
@@ -238,6 +240,34 @@ class SalaryCalculator:
         self.gift_aid = gift_aid
         self.salary_sacrifice = salary_sacrifice
 
+        # -- Fiscal Drag Scaling --
+        inf_mult = (1 + inflation_rate) ** max(0, simulation_year - 2025)
+        for b in self.tax_brackets:
+            if b["upper"] is not None:
+                b["upper"] = b["upper"] * inf_mult
+                # Scale Employee NI brackets
+                for cat in self.employee_ni_brackets.values():
+                    for b in cat:
+                        if b["upper"] is not None:
+                            b["upper"] *= inf_mult
+
+                # Scale Employer NI brackets
+                for cat in self.employer_ni_brackets.values():
+                    for b in cat:
+                        if b["upper"] is not None:
+                            b["upper"] *= inf_mult
+
+                # Scale Student Loan thresholds
+                for plan in self.student_loan_data.values():
+                    plan["threshold"] *= inf_mult
+
+                # Store inflated thresholds for methods that had hardcoded values
+                self.base_personal_allowance = 12570 * inf_mult
+                self.allowance_taper_threshold = 100000 * inf_mult
+                self.pension_lower = 6240 * inf_mult
+                self.pension_upper = 50270 * inf_mult
+                self.hicbc_threshold = 60000 * inf_mult
+
     # --------------------------------------------------------------------
     #  SHARED BRACKET CALCULATION ENGINE
     # --------------------------------------------------------------------
@@ -371,8 +401,8 @@ class SalaryCalculator:
 
         :return: Qualifying earnings amount.
         """
-        lower = 6240
-        upper = 50270
+        lower = self.pension_lower
+        upper = self.pension_upper
         # check if the user is contributing to a pension
         if not self.use_qualifying_earnings:
             return self.gross_salary
@@ -433,10 +463,10 @@ class SalaryCalculator:
         # Use ANI instead of gross salary
         adjusted_income = self.calculate_adjusted_net_income()
 
-        if adjusted_income <= 60000:
+        if adjusted_income <= self.hicbc_threshold:
             return {"charge": 0, "percentage": 0}
 
-        excess = adjusted_income - 60000
+        excess = adjusted_income - self.hicbc_threshold
 
         # 1% charge per £200 over threshold
         percentage = min(100, (excess // 200))
@@ -479,13 +509,13 @@ class SalaryCalculator:
 
         :return: The adjusted personal allowance amount.
         """
-        base_allowance = 12570
+        base_allowance = self.base_personal_allowance
         ani = self.calculate_adjusted_net_income()
 
-        if ani <= 100000:
+        if ani <= self.allowance_taper_threshold:
             return base_allowance
 
-        reduction = (ani - 100000) / 2
+        reduction = (ani - self.allowance_taper_threshold) / 2
         allowance = max(0, base_allowance - reduction)
 
         return allowance
@@ -528,6 +558,23 @@ class SalaryCalculator:
                     salary_sacrifice
             )
         }
+
+    @staticmethod
+    def calculate_mortgage_repayment(principal, annual_rate, remaining_years):
+        """
+        A mortgage repayment so agents are locked into a low fixed rate mortgage
+        :param principal:
+        :param annual_rate:
+        :param remaining_years:
+        :return:
+        """
+        if remaining_years <= 0 or principal <= 0:
+            return 0
+        monthly_rate = (annual_rate / 100) / 12
+        months = remaining_years * 12
+        if monthly_rate == 0:
+            return principal / months
+        return principal * (monthly_rate * (1 + monthly_rate) ** months) / ((1 + monthly_rate) ** months - 1)
 
     def calculate_net_pay(self):
         """

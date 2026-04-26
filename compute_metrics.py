@@ -11,6 +11,7 @@ Metrics computed:
     7.  Living situation breakdown - % in each living situation per year
     8.  Salary vs FTB age correlation - Pearson R between income and purchase age
     9.  Affordability ratio trajectory - house price / salary over time
+    10. Debts and their values
 """
 
 import os
@@ -46,7 +47,7 @@ def load_latest_results(path: str = None) -> pd.DataFrame:
 _NUMERIC_COLS = [
     "gross_salary", "savings", "age", "sim_year", "deposit_pct",
     "deposit_paid", "property_price", "mortgage_rate", "ftb_age",
-    "monthly_rent", "net_salary",
+    "monthly_rent", "net_salary", "debt_overview",
 ]
 
 
@@ -346,8 +347,6 @@ def print_results(metrics: dict):
         print(f"      Overall mean: {af['overall_mean']}")
         for year, ratio in sorted(af["per_year"].items()):
             print(f"      {year}:  {ratio:.2f}")
-
-    print(f"\n{sep}\n")
 
 
 if __name__ == "__main__":

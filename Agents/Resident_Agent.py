@@ -35,7 +35,7 @@ class ResidentAgent:
     LIFE_EVENT_PROBABILITIES = {
         "salary_increase":  {"young": 0.15, "mid_life": 0.12, "later_life": 0.08},
         "job_promotion":    {"young": 0.08, "mid_life": 0.10, "later_life": 0.05},
-        "job_loss":         {"young": 0.03, "mid_life": 0.02, "later_life": 0.04},
+       # "job_loss":         {"young": 0.03, "mid_life": 0.02, "later_life": 0.04},
         "marriage":         {"young": 0.05, "mid_life": 0.08, "later_life": 0.02},
         "birth_child":      {"young": 0.03, "mid_life": 0.10, "later_life": 0.01},
         "divorce":          {"young": 0.01, "mid_life": 0.03, "later_life": 0.02},
@@ -122,6 +122,7 @@ class ResidentAgent:
         self.living_situation = living_situation
         # Track consecutive years in deficit — used to trigger automatic downgrade
         self._deficit_years = 0
+        self.bankruptcy_timer = 0 # vairable for tracking when can get a new mortgage
 
         # -- LLM flag --
         # When False, all decisions use the deterministic rule-based fallback.
@@ -149,7 +150,7 @@ class ResidentAgent:
             "net_salary": 0,
             "total_expenses_monthly": 0,
             "savings": initial_savings,
-            "debt": 0,
+            "debt": self.debt_manager.full_debt_list()
         }
         self.monthly_available_funds = 0
 
@@ -330,6 +331,7 @@ class ResidentAgent:
         self.financial_calculator = SalaryCalculator(
             self.gross_salary,
             student_loan_plans=active_plans,
+            simulation_year=self.simulation_year
         )
 
     def _active_student_loan_plans(self):
@@ -577,19 +579,49 @@ class ResidentAgent:
                 remaining_deficit = deficit - self.financial_state["savings"]
                 self.financial_state["savings"] = 0
 
-                # Add an overdraft entry to DebtManager so interest accrues
+                # --- NEW OVERDRAFT LIMIT LOGIC ---
+                # Limit is dynamically set to 10% of their current gross salary
+                overdraft_limit = self.gross_salary * 0.10
                 overdraft_label = "overdraft"
+
+                # Check current balance
+                current_balance = 0
                 if overdraft_label in self.debt_manager.debts:
-                    # Increase existing overdraft balance
-                    self.debt_manager.debts[overdraft_label]["balance"] += remaining_deficit
+                    current_balance = self.debt_manager.debts[overdraft_label]["balance"]
+
+                projected_balance = current_balance + remaining_deficit
+
+                # If they exceed their limit, trigger bankruptcy
+                if projected_balance > overdraft_limit:
+
+                    # Force a massive life event because they are fully bankrupt
+                    self.apply_life_event("declared_bankruptcy")
+
+                    # Evict them / repossess house
+                    if self.mortgage_status == "active_mortgage":
+                        self.apply_life_event("property_repossessed")
+                    elif self.living_situation != "with_parents":
+                        self.living_situation = "with_parents"
+                        self.life_events.append("evicted_moved_to_parents")
+
                 else:
-                    # Create a new overdraft debt at 19.9% APR
-                    self.debt_manager.add_debt(
-                        overdraft_label,
-                        balance=remaining_deficit,
-                        apr=0.199,
-                        min_payment=max(25, remaining_deficit * 0.02),
-                    )
+                    # They are under the limit, proceed normally
+                    if overdraft_label in self.debt_manager.debts:
+                        self.debt_manager.debts[overdraft_label]["balance"] += remaining_deficit
+                    else:
+                        self.debt_manager.add_debt(
+                            overdraft_label,
+                            balance=remaining_deficit,
+                            apr=0.199,
+                            min_payment=max(25, remaining_deficit * 0.02),
+                        )
+
+                # IMPORTANT: Recalculate minimum payments so debt doesn't compound silently
+                if overdraft_label in self.debt_manager.debts:
+                    new_bal = self.debt_manager.debts[overdraft_label]["balance"]
+                    new_min = max(25.0, new_bal * 0.02)
+                    self.debt_manager.debts[overdraft_label]["min_payment"] = new_min
+                    self.debt_manager.debts[overdraft_label]["monthly_payment"] = new_min
 
             return {
                 "goal_contributions": 0,
@@ -656,27 +688,68 @@ class ResidentAgent:
         """
         available = self.monthly_available_funds  # monthly spare cash
 
-        # -- Deficit path --
+        # -- Deficit path: agent is spending more than they earn --
         if available <= 0:
             deficit = abs(available)
 
             if self.financial_state["savings"] >= deficit:
+                # Drain savings to cover the shortfall
                 self.financial_state["savings"] -= deficit
             else:
+                # Savings are wiped out; the remainder becomes overdraft debt
                 remaining_deficit = deficit - self.financial_state["savings"]
                 self.financial_state["savings"] = 0
 
-                # Add to overdraft debt
+                # --- NEW OVERDRAFT LIMIT LOGIC ---
+                # Limit is dynamically set to 10% of their current gross salary
+                overdraft_limit = self.gross_salary * 0.10
                 overdraft_label = "overdraft"
+
+                # Check current balance
+                current_balance = 0
                 if overdraft_label in self.debt_manager.debts:
-                    self.debt_manager.debts[overdraft_label]["balance"] += remaining_deficit
+                    current_balance = self.debt_manager.debts[overdraft_label]["balance"]
+
+                projected_balance = current_balance + remaining_deficit
+
+                # If they exceed their limit, cap the debt and trigger a default
+                if projected_balance > overdraft_limit:
+                    allowed_borrowing = max(0, overdraft_limit - current_balance)
+
+                    if overdraft_label in self.debt_manager.debts:
+                        self.debt_manager.debts[overdraft_label]["balance"] += allowed_borrowing
+                    else:
+                        self.debt_manager.add_debt(overdraft_label, allowed_borrowing, 0.199,
+                                                   max(25, allowed_borrowing * 0.02))
+
+                    # Force a severe life event because they are fully bankrupt
+                    self.life_events.append("financial_default")
+
+                    # Evict them / repossess house if they run out of credit
+                    if self.mortgage_status == "active_mortgage":
+                        self.apply_life_event("property_repossessed")
+                    elif self.living_situation != "with_parents":
+                        self.living_situation = "with_parents"
+                        self.life_events.append("evicted_moved_to_parents")
+
                 else:
-                    self.debt_manager.add_debt(
-                        overdraft_label,
-                        balance=remaining_deficit,
-                        apr=0.199,
-                        min_payment=max(25, remaining_deficit * 0.02),
-                    )
+                    # They are under the limit, proceed normally
+                    if overdraft_label in self.debt_manager.debts:
+                        self.debt_manager.debts[overdraft_label]["balance"] += remaining_deficit
+                    else:
+                        self.debt_manager.add_debt(
+                            overdraft_label,
+                            balance=remaining_deficit,
+                            apr=0.199,
+                            min_payment=max(25, remaining_deficit * 0.02),
+                        )
+
+                # IMPORTANT: Recalculate minimum payments so debt doesn't compound silently
+                if overdraft_label in self.debt_manager.debts:
+                    new_bal = self.debt_manager.debts[overdraft_label]["balance"]
+                    new_min = max(25.0, new_bal * 0.02)
+                    self.debt_manager.debts[overdraft_label]["min_payment"] = new_min
+                    self.debt_manager.debts[overdraft_label]["monthly_payment"] = new_min
 
             return {
                 "goal_contributions": 0,
@@ -1045,6 +1118,8 @@ class ResidentAgent:
         :param max_property_price: The highest property price to try.
         :return: Dict with mortgage details if approved, or None.
         """
+        if self.bankruptcy_timer > 0:
+            return None
         savings = self.financial_state["savings"]
         net_monthly = self.financial_state["net_salary"] / 12
         # After buying the agent no longer pays rent, so subtract current rent
@@ -1158,6 +1233,14 @@ class ResidentAgent:
                     best_key = (best["property_price"], best["affordability_score"]) if best else (-1, -1)
 
                     if candidate_key > best_key:
+                        # --- Figure out the fixed term from the product name ---
+                        prod_name = product.name.upper()
+                        fixed_term = 2  # Default to 2-year fix
+                        if "5" in prod_name.split("_")[1:2]:  # Checks for FTB_5 or FIXED_5
+                            fixed_term = 5
+                        elif "VAR" in prod_name:
+                            fixed_term = 0  # Immediate variable rate
+
                         best = {
                             "monthly_payment": lending["monthly_payment"],
                             "product_name": product.name,
@@ -1167,6 +1250,7 @@ class ResidentAgent:
                             "deposit_paid": deposit,
                             "term_years": 25,
                             "years_remaining": 25,
+                            "fixed_years_remaining": fixed_term,  #Track the fixed period
                             "property_price": property_price,
                             "affordability_score": affordability["score"],
                             "comfort_label": affordability["comfort_label"],
@@ -1342,11 +1426,49 @@ class ResidentAgent:
                                 self.active_mortgage["years_remaining"] = 0
 
                     if decision == "CONSIDER_MOVING":
-                        self.current_property = None
-                        self.active_mortgage = None
-                        self.mortgage_status = "no_mortgage"
-                        self._remove_homeowner_expenses()
-                        self.life_events.append("property_sold")
+                        # Sell the current house instantly and collect the equity
+                        self.apply_life_event("property_sold")
+
+                        # Immediately try to buy a new house using the new savings balance
+                        max_price = self.housing_preferences.get("max_price", 0)
+                        best_mortgage = self._find_best_mortgage(max_price)
+
+                        if best_mortgage is not None:
+                            # House found! Buy it on the same day (Property Chain)
+                            if self.last_search_results:
+                                self.current_property = self.last_search_results[0]
+                            else:
+                                self.current_property = f"Property @ £{best_mortgage['property_price']:,.0f}"
+
+                            self.financial_state["savings"] -= best_mortgage["deposit_paid"]
+
+                            # Deduct SDLT from savings (They are NO LONGER a first time buyer)
+                            from Financial.Financial_Calculator import calculate_sdlt
+                            sdlt = calculate_sdlt(best_mortgage["property_price"], first_time_buyer=False)
+                            self.financial_state["savings"] -= sdlt["total_sdlt"]
+
+                            # Deduct solicitor, moving, AND estate agent selling fees (~1% of old house)
+                            transaction_costs = 5_000
+                            self.financial_state["savings"] -= transaction_costs
+
+                            self.active_mortgage = best_mortgage
+                            self.mortgage_status = "active_mortgage"
+                            self._apply_homeowner_expenses(best_mortgage["property_price"])
+                            self.life_events.append("bought_new_home")
+                            triggered_events.append("moved_house_successfully")
+
+                            # Initialize fault modelling for the new property
+                            if hasattr(self.current_property, "postcode"):
+                                from data.postcode_lookup import PostcodeLookup
+                                from Algorithms.Fault_Modelling import FaultModelling
+                                lookup = PostcodeLookup()
+                                lsoa = lookup.get_lsoa(self.current_property.postcode)
+                                self.current_property.fault_model = FaultModelling(self.current_property, lsoa)
+                        else:
+                            #Chain Collapsed Agent couldn't get a new mortgage, so they are stuck renting.
+                            decision = "SELL_AND_RENT"
+                            self.life_events.append("property_chain_collapsed_now_renting")
+                            triggered_events.append("property_chain_collapsed")
 
         # Tick down mortgage by 1 month (1/12 of a year)
         if self.active_mortgage:
@@ -1418,6 +1540,8 @@ class ResidentAgent:
         # Age the resident
         self.age += years_elapsed
         self.simulation_year += years_elapsed
+        if self.bankruptcy_timer > 0:
+            self.bankruptcy_timer -= years_elapsed
 
         # -- Check if student loan repayments should activate this year --
         if (self.student_loan_plans
@@ -1426,8 +1550,21 @@ class ResidentAgent:
             self._rebuild_calculator()  # Plans will now be active
             auto_events.append("student_loan_repayments_started")
 
+        # -- Check if Job loss, if so, let agent gain job --
+        if self.gross_salary == 0:
+            auto_events.append("job_gain")
+
+        # -- Check for Retirement --
+        if self.age == 68 and self.gross_salary > 0:
+            # Convert to a pension (e.g., State Pension + 40% of final salary)
+            final_salary = self.gross_salary
+            self.gross_salary = 11_500 + (final_salary * 0.40)  # UK Approx
+            self._rebuild_calculator()
+            self.financial_state["gross_salary"] = self.gross_salary
+            auto_events.append("retired_from_work")
+
         # -- Apply salary growth (2.5% average, +/- some noise) --
-        if self.gross_salary > 0:
+        elif self.gross_salary > 0:
             growth = self.SALARY_GROWTH_RATE + random.uniform(-0.01, 0.01)
             self.gross_salary *= (1 + growth)
             self._rebuild_calculator()
@@ -1540,9 +1677,29 @@ class ResidentAgent:
                     new_faults = self.current_property.fault_model.assess_annual_faults(self.simulation_year)
                     total_repair_cost = sum(f['repair_cost'] for f in new_faults)
                     if total_repair_cost > 0:
-                        self.financial_state["savings"] -= total_repair_cost
-                        triggered_events.append(f"property_repairs:£{total_repair_cost:,.0f}")
+                        if self.financial_state["savings"] >= total_repair_cost:
+                            self.financial_state["savings"] -= total_repair_cost
+                        else:
+                            # Agent doesn't have enough savings - put the shortfall on credit
+                            shortfall = total_repair_cost - self.financial_state["savings"]
+                            self.financial_state["savings"] = 0
 
+                            overdraft_label = "overdraft"
+                            if overdraft_label in self.debt_manager.debts:
+                                self.debt_manager.debts[overdraft_label]["balance"] += shortfall
+                                # Crucial: Recalculate minimum payment so they actually pay it off!
+                                new_bal = self.debt_manager.debts[overdraft_label]["balance"]
+                                new_min = max(25.0, new_bal * 0.02)
+                                self.debt_manager.debts[overdraft_label]["min_payment"] = new_min
+                                self.debt_manager.debts[overdraft_label]["monthly_payment"] = new_min
+                            else:
+                                self.debt_manager.add_debt(
+                                    overdraft_label,
+                                    balance=shortfall,
+                                    apr=0.199,
+                                    min_payment=max(25.0, shortfall * 0.02),
+                                )
+                        triggered_events.append(f"property_repairs:£{total_repair_cost:,.0f}")
                 if decision == "OVERPAY_MORTGAGE":
                     # Put 50% of available savings towards overpayment
                     overpay = self.financial_state["savings"] * 0.5
@@ -1557,6 +1714,28 @@ class ResidentAgent:
 
                 # Tick down the mortgage term
                 self.active_mortgage["years_remaining"] -= years_elapsed
+                # --- Tick down the fixed rate period ---
+                if self.active_mortgage.get("fixed_years_remaining", 0) > 0:
+                    self.active_mortgage["fixed_years_remaining"] -= years_elapsed
+
+                    # Did the fixed term just expire this year?
+                    if self.active_mortgage["fixed_years_remaining"] <= 0:
+                        new_rate = 7.5  # Standard Variable Rate
+                        self.active_mortgage["rate"] = new_rate
+
+                        # Use the Financial Calculator to find the new payment
+                        new_payment = SalaryCalculator.calculate_mortgage_repayment(
+                            principal=self.active_mortgage["loan_amount"],
+                            annual_rate=new_rate,
+                            remaining_years=self.active_mortgage["years_remaining"]
+                        )
+
+                        self.active_mortgage["monthly_payment"] = new_payment
+
+                        # Record the financial hit
+                        triggered_events.append(
+                            f"mortgage_shock:rate_jumped_to_{new_rate}%_payment_now_£{new_payment:,.0f}")
+                        self.life_events.append("mortgage_rate_shock")
 
                 # Check if the mortgage is fully paid off
                 if self.active_mortgage["years_remaining"] <= 0:
@@ -1599,6 +1778,7 @@ class ResidentAgent:
                 (self.financial_state["savings"] - old_savings)
                 - (self.financial_state.get("debt", 0) - old_debt), 0),
             "total_debt": round(self.financial_state.get("debt", 0), 0),
+            "debt_summary": self.financial_state.get("debt_summary", 0),
             "housing_status": self.mortgage_status,
             "living_situation": self.living_situation,
             "life_events_this_year": triggered_events,
@@ -1645,6 +1825,7 @@ class ResidentAgent:
             salary_increase  - must have a job (gross_salary > 0)
             job_promotion    - must have a job
             job_loss         - must have a job
+            job_gain         - must not have a job
             marriage         - must not already be married
             birth_child      - must be married
             divorce          - must be married
@@ -1660,7 +1841,8 @@ class ResidentAgent:
         preconditions = {
             "salary_increase": has_job,
             "job_promotion":   has_job,
-            "job_loss":        has_job,
+          #  "job_loss":        has_job.
+            "job_gain":        not has_job,
             "marriage":        not self.is_married,
             "birth_child":     self.is_married,
             "divorce":         self.is_married,
@@ -1833,12 +2015,21 @@ class ResidentAgent:
             self.financial_state["gross_salary"] = self.gross_salary
             changes.append(f"Salary: £{old_salary:,.0f} -> £{self.gross_salary:,.0f}")
 
-        elif event_type == "job_loss":
+#        elif event_type == "job_loss":
+ #           old_salary = self.gross_salary
+  #          self.gross_salary = 0
+   #         self._rebuild_calculator()
+    #        self.financial_state["gross_salary"] = self.gross_salary
+     #       changes.append(f"Salary: £{old_salary:,.0f} -> £0 (job lost)")
+
+        elif event_type == "job_gain":
+            print("Debugging statement")
             old_salary = self.gross_salary
-            self.gross_salary = 0
+            self.gross_salary = 25_000
             self._rebuild_calculator()
+            self.gross_salary = event_data.get("salary", 25_000)  # Default to a £25k salary if not specified
             self.financial_state["gross_salary"] = self.gross_salary
-            changes.append(f"Salary: £{old_salary:,.0f} -> £0 (job lost)")
+            changes.append(f"Salary: £{old_salary:,.0f} -> £{self.gross_salary:,.0f} (new job)")
 
         elif event_type == "marriage":
             self.family_size += 1
@@ -1865,13 +2056,38 @@ class ResidentAgent:
                 self.family_size -= 1
             changes.append(f"Divorced. Family size: {self.family_size}")
 
+
         elif event_type == "debt_increase":
             amount = event_data.get("amount", 5000)
             apr = event_data.get("apr", 0.19)
-            min_pay = event_data.get("min_payment", max(50, amount * 0.02))
-            debt_label = event_data.get("name", f"debt_{len(self.debt_manager.debts) + 1}")
-            self.debt_manager.add_debt(debt_label, amount, apr, min_pay)
-            changes.append(f"Debt increased by £{amount:,.0f} (tracked as '{debt_label}')")
+            # Give the debt a realistic, randomized name
+            if "name" in event_data:
+                debt_label = event_data["name"]
+            else:
+                emergency_reasons = [
+                    "car_transmission_failure", "unexpected_tax_bill",
+                    "emergency_vet_fees", "legal_dispute_fees",
+                    "dental_surgery", "family_emergency_travel"
+                ]
+                # Append a number just in case they roll the exact same event twice
+                base_reason = random.choice(emergency_reasons)
+                debt_label = f"{base_reason}_{len(self.debt_manager.debts) + 1}"
+            #Check if the agent can just pay it off with their savings
+            if self.financial_state["savings"] >= amount:
+                self.financial_state["savings"] -= amount
+                changes.append(f"Unexpected £{amount:,.0f} expense ({debt_label}) paid immediately in cash")
+            else:
+                #Drain whatever savings they DO have, put the rest on a loan
+                remaining_debt = amount
+                if self.financial_state["savings"] > 0:
+                    paid = self.financial_state["savings"]
+                    remaining_debt -= paid
+                    self.financial_state["savings"] = 0
+                    changes.append(f"Drained £{paid:,.0f} savings to partially cover {debt_label}")
+                # Add the remaining shortfall to the debt manager
+                min_pay = event_data.get("min_payment", max(50, remaining_debt * 0.02))
+                self.debt_manager.add_debt(debt_label, remaining_debt, apr, min_pay)
+                changes.append(f"Took on £{remaining_debt:,.0f} debt at {apr * 100:.1f}% APR for '{debt_label}'")
 
         elif event_type == "new_job":
             old_salary = self.gross_salary
@@ -1905,6 +2121,17 @@ class ResidentAgent:
             self.mortgage_status = "no_mortgage"
             self._remove_homeowner_expenses()
             changes.append(f"Property sold — £{equity:,.0f} equity added to savings")
+
+
+        elif event_type == "declared_bankruptcy":
+            #Ask DebtManager to handle the debt wipe
+            wiped_amount = self.debt_manager.declare_bankruptcy()
+            #Agent handles its own state changes
+            self.financial_state["savings"] = 0
+            self.bankruptcy_timer = 6
+
+            changes.append(f"Declared Bankruptcy! £{wiped_amount:,.0f} of debt wiped.")
+            changes.append("Credit file destroyed for 6 years.")
 
         elif event_type == "property_repossessed":
             self.current_property = None
