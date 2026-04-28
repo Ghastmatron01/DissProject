@@ -84,6 +84,11 @@ class SimulationLogger:
             "deposit_paid": year_result.get("deposit_paid") if is_ftb else None,
             "deposit_pct": year_result.get("deposit_pct") if is_ftb else None,
             "mortgage_rate": year_result.get("mortgage_rate") if is_ftb else None,
+            # --- AI transparancy columns
+            "ai_reasoning": year_result.get("ai_reasoning", ""),
+            "ai_narrative": year_result.get("ai_narrative", ""),
+            "ai_tool_trace": str(year_result.get("ai_tool_trace", [])),  # Convert list to string for CSV
+            "ai_raw_response": year_result.get("ai_raw_response", ""),
         })
 
     def log_month(self, sim_year, month, agent_name, month_result):
@@ -128,6 +133,11 @@ class SimulationLogger:
             "deposit_paid": month_result.get("deposit_paid") if is_ftb else None,
             "deposit_pct": month_result.get("deposit_pct") if is_ftb else None,
             "mortgage_rate": month_result.get("mortgage_rate") if is_ftb else None,
+            # AI transparacny
+            "ai_reasoning": month_result.get("ai_reasoning", ""),
+            "ai_narrative": month_result.get("ai_narrative", ""),
+            "ai_tool_trace": str(month_result.get("ai_tool_trace", [])),  # Convert list to string for CSV
+            "ai_raw_response": month_result.get("ai_raw_response", ""),
         })
 
     def export_csv(self, filename=None):

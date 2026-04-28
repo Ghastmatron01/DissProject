@@ -16,6 +16,7 @@ from Algorithms.Fault_Modelling import FaultModelling
 from data.postcode_lookup import PostcodeLookup
 
 
+
 class ResidentAgent:
     """
     AI-powered resident agent that uses an LLM (Ollama) as its decision-making
@@ -1459,8 +1460,6 @@ class ResidentAgent:
 
                             # Initialize fault modelling for the new property
                             if hasattr(self.current_property, "postcode"):
-                                from data.postcode_lookup import PostcodeLookup
-                                from Algorithms.Fault_Modelling import FaultModelling
                                 lookup = PostcodeLookup()
                                 lsoa = lookup.get_lsoa(self.current_property.postcode)
                                 self.current_property.fault_model = FaultModelling(self.current_property, lsoa)

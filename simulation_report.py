@@ -466,8 +466,15 @@ def print_report(r2, ftb, deposit, accuracy):
 
 if __name__ == "__main__":
     print("Running synthetic simulation...")
-    df = run_synthetic_simulation()
+    #df = run_synthetic_simulation()
+    df = pd.read_csv('results/simulation_20260427_143806.csv')
 
+    df = df.rename(columns={
+        "mortgage_rate": "mortgage_rate_pct",
+        "deposit_pct": "actual_deposit_pct"
+    })
+
+    df["background"] = "LLM Agent"
     # Compute metrics
     r2       = compute_r_squared(df)
     ftb      = compute_ftb_metrics(df)
