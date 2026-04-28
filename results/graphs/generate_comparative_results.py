@@ -9,7 +9,6 @@ deposits = [15.0, 11.0, 20.0]
 # Set up the figure with 2 subplots side-by-side
 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))
 
-# Beautiful academic colors (Blue, Orange, Green)
 colors = ['#4C72B0', '#DD8452', '#55A868']
 x_pos = np.arange(len(categories))
 
