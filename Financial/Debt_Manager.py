@@ -145,6 +145,12 @@ class DebtManager:
                 combined[name] = data
         return combined
 
+    def declare_bankruptcy(self):
+        """Wipes all unsecured debt and returns the amount forgiven."""
+        wiped_amount = sum(d["balance"] for d in self.debts.values())
+        self.debts.clear()
+        return wiped_amount
+
     def full_summary(self):
         """
         Run the payoff model for every debt and return a combined summary.
@@ -155,3 +161,16 @@ class DebtManager:
         for name in self.debts:
             summary[name] = self.model_payoff(name)
         return summary
+
+    def full_debt_list(self):
+        """
+        return a dictionary of all debts with their current balances and monthly payments.
+        :return:
+        """
+        return {
+            name: {
+                "balance": debt["balance"],
+                "monthly_payment": debt["monthly_payment"]
+            }
+            for name, debt in self.debts.items()
+        }
