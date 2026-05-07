@@ -1,4 +1,3 @@
-# Class to help the user payoff their debts, grievances, and alimony
 class DebtManager:
     """
     Handles user-defined debts. Supports adding debts, updating payments,

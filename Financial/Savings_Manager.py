@@ -5,7 +5,6 @@ class SavingsGoalManager:
     """
 
     def __init__(self):
-        """Initialise with an empty goals dictionary."""
         self.goals = {}
 
     def add_goal(self, name, target, monthly_contribution):
