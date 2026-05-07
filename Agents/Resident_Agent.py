@@ -109,7 +109,7 @@ class ResidentAgent:
         # _base_rent is the full market rent for the agent's bedroom need.
         # The actual rent charged depends on living_situation (see effective_monthly_rent).
         self._base_rent = monthly_rent
-        self.savings_rate = max(0.0, min(1.0, savings_rate))  # Clamp between 0 and 1
+        self.savings_rate = max(0.0, min(1.0, savings_rate))
         self.student_loan_plans = student_loan_plans or []
         self.student_loan_balance = student_loan_balance  # Total owed (for info)
         self.student_loan_graduation_year = student_loan_graduation_year
@@ -133,7 +133,6 @@ class ResidentAgent:
         # Agents avoid 5% (high-risk, expensive products) — 10% is the floor.
         self.target_deposit_pct = max(0.10, float(target_deposit_pct))
 
-        # Use the provided calculator or create one from the salary
         if financial_calculator is not None:
             self.financial_calculator = financial_calculator
         else:
@@ -2284,6 +2283,7 @@ class ResidentAgent:
         :param year_result: The dict returned by time_step() or monthly_step().
         :return: String narrative from the LLM, or a fallback message.
         """
+
         if not self.use_llm:
             return ""
 

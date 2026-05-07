@@ -1,5 +1,3 @@
-# file to be an Expense manager for the user
-
 class ExpenseManager:
     """
     Handles user-defined expenses. Supports adding, removing, grouping,

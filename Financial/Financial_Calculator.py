@@ -1,4 +1,3 @@
-# File to calculate the net income of the user after base salary has been entered
 class SalaryCalculator:
     """
     A unified calculator for UK salary deductions:
